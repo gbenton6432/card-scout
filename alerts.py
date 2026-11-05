@@ -81,6 +81,17 @@ def run(listings, a, demo=False):
 REMINDED = os.path.join(HERE, "cache", "reminded.json")
 
 
+def _owner():
+    o = os.environ.get("GITHUB_REPOSITORY_OWNER")
+    return [o] if o else []
+
+
+def _ping():
+    # Mentions and assignments are what the GitHub phone app pushes by default
+    o = os.environ.get("GITHUB_REPOSITORY_OWNER")
+    return f"\n\n@{o}" if o else ""
+
+
 def _issue(title, body):
     repo, tok = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
     if not (repo and tok):
@@ -88,7 +99,7 @@ def _issue(title, body):
         return
     r = requests.post(f"https://api.github.com/repos/{repo}/issues",
                       headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"},
-                      json={"title": title, "body": body}, timeout=30)
+                      json={"title": title, "body": body + _ping(), "assignees": _owner()}, timeout=30)
     print(f"Issue '{title}': {r.status_code}")
 
 
