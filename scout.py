@@ -114,7 +114,9 @@ def players_from(cfg):
     for p in cfg.get("players") or []:
         lo, hi = _years(p.get("years"))
         sport = str(p.get("sport", "")).lower()
+        jersey = p.get("jersey", [])
         out.append({"name": p["name"], "sport": sport, "lo": lo, "hi": hi,
+                    "jersey": [int(j) for j in (jersey if isinstance(jersey, list) else [jersey])],
                     "category": "tcg" if sport in TCG_SPORTS else "sports"})
     return out
 
@@ -151,6 +153,7 @@ def to_listing(it, player, year, st):
         "price": float(price.get("value", 0) or 0),
         "ship": float(ship.get("value", 0) or 0) if ship else None,
         "auction": int("AUCTION" in (it.get("buyingOptions") or [])),
+        "offers": int("BEST_OFFER" in (it.get("buyingOptions") or [])),
         "ends": it.get("itemEndDate"), "listed": it.get("itemCreationDate"),
         "seller": seller.get("username", ""), "feedback": int(seller.get("feedbackScore") or 0),
         "card": number, "parallel": parallel,
@@ -254,9 +257,16 @@ class Scanner:
 
 # ── 3. Centering, measured once per listing ─────────────────────────────
 
-def measure_new(store, minutes, demo=False):
+def measure_new(store, minutes, demo=False, read_serials=True):
+    """Centering (and the serial stamp, for sports cards) for photos not measured yet."""
     deadline = time.time() + minutes * 60
     http = requests.Session()
+    if read_serials:
+        try:
+            from serials import read_serial
+        except ImportError:
+            print("Serial reading skipped: rapidocr-onnxruntime isn't installed")
+            read_serials = False
 
     def one(row):
         if time.time() > deadline:
@@ -268,17 +278,25 @@ def measure_new(store, minutes, demo=False):
                 data = r.content
             else:
                 data = open(os.path.join(HERE, "site", row["img"]), "rb").read()
-            return row["id"], measure(data)
+            c = measure(data)
+            if read_serials and row["sport"] not in TCG_SPORTS:
+                try:
+                    sn = read_serial(data, c.get("quad"))
+                    if sn:
+                        c["sn"] = sn
+                except Exception as e:
+                    c["sn_error"] = type(e).__name__
+            return row["id"], c
         except Exception as e:
             return row["id"], {"confidence": 0, "note": f"photo didn't load ({type(e).__name__})"}
 
     done = 0
     while time.time() < deadline:
-        rows = store.db.execute("SELECT id, img FROM listings WHERE active=1 AND measured_at IS NULL "
+        rows = store.db.execute("SELECT id, img, sport FROM listings WHERE active=1 AND measured_at IS NULL "
                                 "ORDER BY first_seen DESC LIMIT 400").fetchall()
         if not rows:
             break
-        with ThreadPoolExecutor(16) as pool:
+        with ThreadPoolExecutor(8) as pool:
             for iid, c in pool.map(one, rows):
                 if c is None:
                     continue
@@ -331,25 +349,26 @@ def publish(store, cfg, scanner, run_stats):
         t = typical.get((r["player"], r["year"], r["set_name"], r["card"], r["parallel"]))
         by_player[r["player"]].append({
             "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
-            "p": r["price"], "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"],
+            "p": r["price"], "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"], "o": r["offers"],
             "f": r["first_seen"], "sl": r["seller"], "fb": r["feedback"], "y": r["year"],
             "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
             "x": round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None,
             "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
-                  "q": c.get("quad"), "note": c.get("note")} if r["c"] else None,
+                  "q": c.get("quad"), "note": c.get("note"), "sn": c.get("sn")} if r["c"] else None,
         })
     players = []
     for p in scanner.players:
         items = by_player.get(p["name"], [])
         fn = f"players/{slug(p['name'])}.json"
         json.dump(items, open(os.path.join(SITE_DATA, fn), "w"), separators=(",", ":"))
-        players.append({"name": p["name"], "sport": p["sport"], "file": fn, "count": len(items)})
+        players.append({"name": p["name"], "sport": p["sport"], "file": fn, "count": len(items), "jersey": p["jersey"]})
 
     units = [dict(u) for u in store.db.execute("SELECT * FROM units")]
     sweep_calls = sum(max(1, math.ceil(min(u["total"] or PAGE, MAX_RESULTS) / PAGE)) for u in units)
     daily_sweep = max(1, budget_for_day(cfg) - 24 * len(scanner.players))
     index = {
         "updated": now_iso(), "players": players, "min_photos": photos.get("min_photos", 2),
+        "grading": cfg.get("grading", {}),
         "stats": {
             "active": len(rows), "shown": len(shown),
             "measured": sum(1 for r in rows if r["c"]), "dropped": dict(dropped),
@@ -429,7 +448,7 @@ def main():
     print(f"Used {ebay.used} eBay calls. {dict(scanner.stats)}")
 
     minutes = float(os.environ.get("MEASURE_MINUTES") or cfg.get("photos", {}).get("measure_minutes", 25))
-    measure_new(store, minutes, demo)
+    measure_new(store, minutes, demo, cfg.get("photos", {}).get("read_serials", True))
     shown = publish(store, cfg, scanner, scanner.stats)
     alerts.run(store, shown, a, demo=demo)
     store.commit()

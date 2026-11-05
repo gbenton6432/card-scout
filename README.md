@@ -121,9 +121,14 @@ The dashboard header shows how many listings were removed each scan. If you thin
 
 ## Prices
 
-- **PSA 10 sold comps:** each card has a button that opens eBay's sold listings for the PSA 10 version of that card (year, set, player, card number and parallel). There's no free automated source of sold prices, so this is a one-tap manual check.
-- **Price filter:** set a min and max asking price on the dashboard.
-- **Vs. typical ask:** each card shows how its price compares with the median price of other current raw listings of the same card (shown once there are at least 3). "Up to 2× typical ask" hides listings priced far above the rest. This compares asking prices, not sales.
+- **PSA 10 sold comps:** each card has a button that opens eBay's sold listings for the PSA 10 version of that card. There's no free automated source of sold prices, so this is a one-tap manual check.
+- **Break-even:** the sale price that covers what you paid plus all-in grading, after eBay's 13.25% fee, for PSA Value ($45) and Value Bulk ($30). Change the amounts under `grading` in `config.yaml`.
+- **Price filter and sorts:** set a min and max asking price; sort by price either way or by **Newly listed**.
+- **Accepts offers:** shown on the card and available as a filter.
+
+## Serial numbers
+
+The scanner reads the serial stamp (e.g. 023/199) **off the card photo**, not the title, using free OCR that runs on GitHub's servers. Filter by number and print run (e.g. 23 / 99), or pick **Jersey match**, **1st (1/x)**, **Last (x/x)** or **1/1**. Jersey numbers are set per player in `config.yaml`. Foil glare, dark photos and tiny stamps can cause misreads, so always check the stamp in the listing before buying.
 
 ## Alerts
 

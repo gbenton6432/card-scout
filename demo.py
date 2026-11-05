@@ -7,12 +7,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 rng = np.random.default_rng(7)
 
 
-def _photo(l, r, t, b, angle, persp, path, border=(235, 238, 240), bg=(70, 95, 120)):
+SERIALS = {2: "099/199", 8: "10/25", 3: "05/50", 9: "1/1"}  # demo cards with a stamped serial
+
+
+def _photo(l, r, t, b, angle, persp, path, border=(235, 238, 240), bg=(70, 95, 120), serial=None):
     cw, ch = 500, 700
     card = np.full((ch, cw, 3), border, np.uint8)
     art = cv2.GaussianBlur((rng.random((ch - t - b, cw - l - r, 3)) * 140 + 50).astype(np.uint8), (21, 21), 0)
     cv2.circle(art, (art.shape[1] // 2, art.shape[0] // 2), 120, (40, 60, 200), -1)
     card[t:ch - b, l:cw - r] = art
+    if serial:
+        cv2.putText(card, serial, (cw - r - 170, ch - b - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (40, 170, 215), 2, cv2.LINE_AA)
     canvas = (np.full((1100, 900, 3), bg, np.float32) + rng.normal(0, 7, (1100, 900, 3))).clip(0, 255).astype(np.uint8)
     src = np.float32([[0, 0], [cw, 0], [cw, ch], [0, ch]])
     a = np.deg2rad(angle)
@@ -69,8 +74,7 @@ class DemoEbay:
         self.items = []
         for i, (bd, ang, p, price, seller, fb, auction, title, player, year, set_name, gem, _) in enumerate(SPECS):
             name = f"card{i}.jpg"
-            if not os.path.exists(os.path.join(out, name)):
-                _photo(*bd, ang, p, os.path.join(out, name))
+            _photo(*bd, ang, p, os.path.join(out, name), serial=SERIALS.get(i))
             self.items.append(self._item(f"v1|demo{i}|0", title, price, seller, fb, auction, f"demo/{name}",
                                          now - timedelta(hours=i), now + timedelta(hours=3 + 20 * i), i))
         if scale:

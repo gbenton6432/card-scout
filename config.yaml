@@ -12,17 +12,18 @@ gem_rate_min: 50
 # football, soccer, hockey, pokemon...). years: "2018-" = 2018 to today.
 # min_price / max_price are optional per-player overrides.
 players:
-  - {name: Shohei Ohtani,     sport: baseball,   years: 2018-}
-  - {name: Aaron Judge,       sport: baseball,   years: 2013-}
-  - {name: LeBron James,      sport: basketball, years: 2003-}
-  - {name: Stephen Curry,     sport: basketball, years: 2009-}
-  - {name: Patrick Mahomes,   sport: football,   years: 2017-}
-  - {name: Josh Allen,        sport: football,   years: 2018-}
-  - {name: Caleb Williams,    sport: football,   years: 2021-}
-  - {name: Trinity Rodman,    sport: soccer,     years: 2021-}
-  - {name: Linda Caicedo,     sport: soccer,     years: 2022-}
-  - {name: Cavan Sullivan,    sport: soccer,     years: 2023-}
-  - {name: Kylian Mbappe,     sport: soccer,     years: 2016-}
+  # jersey: the player's number(s), for jersey-match serials (e.g. 99/99 for Judge)
+  - {name: Shohei Ohtani,   sport: baseball,   years: 2018-, jersey: [17]}
+  - {name: Aaron Judge,     sport: baseball,   years: 2017-, jersey: [99]}
+  - {name: LeBron James,    sport: basketball, years: 2003-, jersey: [23, 6]}
+  - {name: Stephen Curry,   sport: basketball, years: 2009-, jersey: [30]}
+  - {name: Patrick Mahomes, sport: football,   years: 2017-, jersey: [15]}
+  - {name: Josh Allen,      sport: football,   years: 2018-, jersey: [17]}
+  - {name: Caleb Williams,  sport: football,   years: 2022-, jersey: [18, 13]}
+  - {name: Trinity Rodman,  sport: soccer,     years: 2021-, jersey: [2]}
+  - {name: Linda Caicedo,   sport: soccer,     years: 2023-, jersey: [18, 19]}
+  - {name: Cavan Sullivan,  sport: soccer,     years: 2024-, jersey: [6]}
+  - {name: Kylian Mbappe,   sport: soccer,     years: 2016-, jersey: [10, 9, 7, 29]}
 
 # ── Extra sets (optional) ─────────────────────────────────────
 # Gem rates for every set are kept in gem_rates.yaml automatically.
@@ -53,6 +54,13 @@ defaults:
   buying_options: [FIXED_PRICE, AUCTION]
   ship_to_country: US
   daily_call_limit: 5000      # raise this if eBay approves a higher limit
+
+# ── Break-even ────────────────────────────────────────────────
+# Each card shows the sale price you'd need, after eBay's fee, to get back
+# what you paid plus grading. All-in grading cost per card (fees, shipping, insurance):
+grading:
+  tiers: {Value: 45, Value Bulk: 30}
+  sell_fee_pct: 13.25
 
 # ── Alerts ────────────────────────────────────────────────────
 # Alerts arrive as GitHub issues: GitHub emails you, and the GitHub app
@@ -85,3 +93,4 @@ photos:
   tolerance: 1.5              # allowance for measurement error on good photos
   min_confidence_to_drop: 0.6
   measure_minutes: 25         # time per hourly run spent measuring new photos
+  read_serials: true          # read serial-number stamps (e.g. 023/199) off sports card photos
