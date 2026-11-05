@@ -139,8 +139,8 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     </select>
     <select id="f-sort" aria-label="Sort">
       <option value="center">Best centering</option>
-      <option value="value">Lowest vs. typical ask</option>
-      <option value="price">Lowest price</option>
+      <option value="price">Price: low to high</option>
+      <option value="price-desc">Price: high to low</option>
       <option value="new">Newest</option>
       <option value="ending">Auctions ending soon</option>
     </select>
@@ -149,13 +149,6 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <span aria-hidden="true">–</span>
       <label for="f-max" class="sr">Max</label><input id="f-max" type="number" inputmode="decimal" min="0" placeholder="Max" aria-label="Maximum price">
     </div>
-    <select id="f-x" aria-label="Asking price vs. typical ask">
-      <option value="">Any vs. typical ask</option>
-      <option value="1.5">Up to 1.5× typical ask</option>
-      <option value="2">Up to 2× typical ask</option>
-      <option value="3">Up to 3× typical ask</option>
-      <option value="5">Up to 5× typical ask</option>
-    </select>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
     <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
     <button class="chip" id="f-star" aria-pressed="false">★ Shortlist</button>
@@ -294,21 +287,21 @@ async function render(resetPaging = true) {
   await ensureLoaded();
   const all = listings();
   fillFacets(all);
-  for (const k of ["type", "sort", "min", "max", "x"]) $("#f-" + k).value = state[k];
-  const min = parseFloat(state.min), max = parseFloat(state.max), xmax = parseFloat(state.x);
+  if (!["center", "price", "price-desc", "new", "ending"].includes(state.sort)) state.sort = "center";
+  for (const k of ["type", "sort", "min", "max"]) $("#f-" + k).value = state[k];
+  const min = parseFloat(state.min), max = parseFloat(state.max);
 
   const items = all.filter(l =>
     FACETS.every(f => f === "player" || !state[f] || l[f] === state[f]) &&
     (!state.type || (state.type === "auction") === l.auction) &&
     (isNaN(min) || l.price >= min) && (isNaN(max) || l.price <= max) &&
-    (isNaN(xmax) || l.x == null || l.x <= xmax) &&
     (!state.psa || (readable(l) && l.c.worst <= 55.5)) &&
     (!state.read || readable(l)) &&
     (!state.star || starred.has(l.id)) &&
     (state.hidden || !dismissed.has(l.id)));
   const by = {
     center: (a, b) => (readable(b) - readable(a)) || ((a.c?.worst ?? 99) - (b.c?.worst ?? 99)) || a.price - b.price,
-    value: (a, b) => (a.x ?? 99) - (b.x ?? 99),
+    "price-desc": (a, b) => (b.price + (b.shipping || 0)) - (a.price + (a.shipping || 0)),
     price: (a, b) => (a.price + (a.shipping || 0)) - (b.price + (b.shipping || 0)),
     new: (a, b) => (b.first || "").localeCompare(a.first || ""),
     ending: (a, b) => (b.auction - a.auction) || (a.ends || "z").localeCompare(b.ends || "z"),
@@ -430,7 +423,7 @@ $("#list").addEventListener("click", e => {
 });
 $("#more").onclick = () => { shownN += PAGE_N; render(false) };
 for (const k of ["psa", "read", "star", "hidden"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
-for (const k of [...FACETS, "type", "sort", "x"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
+for (const k of [...FACETS, "type", "sort"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
 let priceTimer;
 for (const k of ["min", "max"]) $("#f-" + k).oninput = e => { state[k] = e.target.value; clearTimeout(priceTimer); priceTimer = setTimeout(render, 350) };
 
