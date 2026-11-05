@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────
 
 # Sets at or above this PSA 10 gem rate are searched; lower ones are skipped.
-gem_rate_min: 40
+gem_rate_min: 50
 
 # ── Players / characters ──────────────────────────────────────
 # sport must match the sport on the sets below (baseball, basketball,
