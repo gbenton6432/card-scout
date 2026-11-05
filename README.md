@@ -107,11 +107,12 @@ Tips:
 
 ## Keeping gem rates current
 
-`gem_rates.yaml` holds the PSA 10 gem rate of every set, organized by sport and year, not by player. So:
+`gem_rates.yaml` holds the PSA 10 gem rate of every baseball, basketball, football and soccer set from 2010 on with 300+ PSA-graded cards, read from GemRate's Set Summary pages. It's organized by sport and year, not by player, so:
 
 - **Adding a player** needs no gem rate work. Add one line under `players` and they're searched across every qualifying set already on file.
-- **New sets** are added by a monthly scheduled task: Claude reads GemRate in your Chrome (it needs the Claude extension and the computer awake), adds new sets, refreshes the newest sets' rates, and saves the file to your repo.
-- **The first fill** is a one-time unattended run of the same thing for 2010 onward. Older sets rarely reach 40%.
+- **New sets and updated rates** come from a monthly scheduled task. Claude opens GemRate in the Claude desktop app's built-in browser (the app needs to be open and the computer awake), re-reads the Set Summary pages, and saves the new file here. The dashboard rescans when it changes.
+- **How searching works:** each player gets one eBay search per year (e.g. "2018 Shohei Ohtani"). Every result is matched to its exact set by title, choosing the longest matching set name, so a Topps Chrome Update card isn't mistaken for Topps Chrome. Results from sets under `gem_rate_min` are dropped.
+- The scripts in `tools/` are what the refresh runs.
 
 ## How consigners get removed
 

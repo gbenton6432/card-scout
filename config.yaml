@@ -24,8 +24,9 @@ players:
   - {name: Cavan Sullivan,    sport: soccer,     years: 2023-}
   - {name: Kylian Mbappe,     sport: soccer,     years: 2016-}
 
-# ── Sets from GemRate ─────────────────────────────────────────
-# One line per set with its overall PSA 10 gem rate (%) from gemrate.com.
+# ── Extra sets (optional) ─────────────────────────────────────
+# Gem rates for every set are kept in gem_rates.yaml automatically.
+# Add a set here only if it's missing there, with its PSA 10 gem rate (%).
 #   year:  as sellers write it, e.g. 2023 (2023-24 sets go in as 2023)
 #   set:   the words sellers put in titles, e.g. Prizm, Topps Chrome Update
 #   exclude (optional): words that mean a different product,
@@ -35,15 +36,13 @@ players:
 sets: []   # to be filled from GemRate
 
 # Optional: one-off searches that don't fit the player × set pattern.
-# The one below is a setup test so your first scan shows real cards before
-# gem rates are filled in. Delete it whenever you like.
-extra_searches:
-  - name: Setup test
-    player: Shohei Ohtani
-    year: 2018
-    set: Topps Chrome Update
-    query: "2018 topps chrome update shohei ohtani -psa -bgs -sgc -cgc -lot"
-    category: sports
+extra_searches: []
+#  - name: Wemby Prizm Silver
+#    player: Victor Wembanyama
+#    year: 2023
+#    set: Prizm Silver
+#    query: "2023 prizm silver wembanyama rookie"
+#    category: sports   # sports | tcg
 
 # ── Applies to every search ──────────────────────────────────
 defaults:

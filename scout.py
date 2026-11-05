@@ -166,40 +166,51 @@ def load_gem_rates():
         return []
 
 
+def _aliases(name):
+    """Ways sellers write a set name in titles: 'Panini Donruss Optic' -> also 'Donruss Optic', 'Optic'."""
+    n = _norm(name).strip()
+    out = {n}
+    if n.startswith("panini "):
+        out.add(n[7:])
+    for full, short in (("donruss optic", "optic"), ("topps chrome update", "chrome update")):
+        for x in list(out):
+            if x.startswith(full):
+                out.add(short + x[len(full):])
+    return [f" {x} " for x in out if len(x) >= 4]
+
+
 def build_searches(cfg):
-    """Group every qualifying player × set pair into as few eBay searches as possible:
-    one search per player per year, with that year's sets OR'd together.
-    Results are matched back to the exact set by title afterwards."""
+    """One eBay search per player per year: '<year> <player>'. Each result is matched to its
+    exact set by title (against every known set that year), and kept only if that set's
+    gem rate meets the cutoff. This keeps eBay calls low no matter how many sets qualify."""
     d = cfg.get("defaults", {})
     base_ex = [w.lower() for w in d.get("exclude_words") or []]
     neg = " ".join(f'-"{w}"' if " " in w else f"-{w}" for w in base_ex)
     cutoff = float(cfg.get("gem_rate_min", 0) or 0)
-    sets = list(cfg.get("sets") or []) + load_gem_rates()
-    sets = [st for st in sets if float(st.get("gem_rate", 0) or 0) >= cutoff]
+    all_sets = list(cfg.get("sets") or []) + load_gem_rates()
+    by_sport_year = {}
+    for st in all_sets:
+        key = (str(st.get("sport", "")).lower(), int(str(st["year"])[:4]))
+        st = dict(st, _aliases=_aliases(st["set"]), _ok=float(st.get("gem_rate", 0) or 0) >= cutoff)
+        by_sport_year.setdefault(key, []).append(st)
     out = []
     for p in cfg.get("players") or []:
         lo, hi = _years(p.get("years"))
         sport = str(p.get("sport", "")).lower()
         tcg = sport in TCG_SPORTS
-        groups = {}
-        for st in sets:
-            year = int(str(st["year"])[:4])
-            if str(st.get("sport", "")).lower() != sport or not (lo <= year <= hi):
-                continue
-            groups.setdefault("" if tcg else str(st["year"]), []).append(st)
-        for year, sts in sorted(groups.items()):
-            for i in range(0, len(sts), 6):  # keep each OR list short
-                chunk = sts[i:i + 6]
-                names = [c["set"] for c in chunk]
-                ors = names[0] if len(names) == 1 else "(" + ",".join(names) + ")"
-                out.append({
-                    "name": f"{p['name']} {year}".strip(),
-                    "player": p["name"], "year": year, "sets": chunk,
-                    "query": f"{year} {p['name']} {ors} {neg}".strip(),
-                    "category": "tcg" if tcg else "sports",
-                    "min_price": p.get("min_price", d.get("min_price")),
-                    "max_price": p.get("max_price", d.get("max_price")),
-                })
+        years = sorted({y for (sp, y), sts in by_sport_year.items()
+                        if sp == sport and lo <= y <= hi and any(x["_ok"] for x in sts)})
+        if tcg:  # TCG sets aren't tied to a season; one search per character
+            years = [""] if years else []
+        for y in years:
+            sets = [x for (sp, yy), sts in by_sport_year.items() if sp == sport and (tcg or yy == y) for x in sts]
+            out.append({
+                "name": f"{p['name']} {y}".strip(), "player": p["name"], "year": str(y), "sets": sets,
+                "query": f"{y} {p['name']} {neg}".strip(),
+                "category": "tcg" if tcg else "sports",
+                "min_price": p.get("min_price", d.get("min_price")),
+                "max_price": p.get("max_price", d.get("max_price")),
+            })
     for e in cfg.get("extra_searches") or []:
         e = dict(e)
         e.setdefault("player", e.get("name", "")); e.setdefault("year", "")
@@ -210,18 +221,23 @@ def build_searches(cfg):
     return out
 
 
-def match_set(title, s):
-    """Which of the search's sets this listing belongs to, or None if it's from another product."""
+def match_set(title, s, qualifying_only=True):
+    """The set this listing belongs to (longest matching set name wins, so 'Topps Chrome Update'
+    beats 'Topps Chrome'), or None if it's another year or a set under the gem rate cutoff."""
     if s.get("exact"):
         st = s["sets"][0]
         return {"year": str(st.get("year", "")), "set": st.get("set", ""), "gem_rate": st.get("gem_rate")}
     t = _norm(title)
     if s["year"] and f" {s['year']} " not in t:
         return None
-    for st in sorted(s["sets"], key=lambda x: -len(x["set"])):  # "Topps Chrome Update" before "Topps Chrome"
-        if _norm(st["set"]) in t and not any(_norm(w) in t for w in st.get("exclude") or []):
-            return {"year": str(st["year"]), "set": st["set"], "gem_rate": st.get("gem_rate")}
-    return None
+    best, best_len = None, 0
+    for st in s["sets"]:
+        for a in st.get("_aliases") or _aliases(st["set"]):
+            if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
+                best, best_len = st, len(a)
+    if not best or (qualifying_only and not best.get("_ok", True)):
+        return None
+    return {"year": str(best["year"]), "set": best["set"], "gem_rate": best.get("gem_rate")}
 
 
 def scan_interval(n_searches, daily_limit):
@@ -243,7 +259,7 @@ def main():
     d, cons, photos = cfg.get("defaults", {}), cfg.get("consigners", {}), cfg.get("photos", {})
 
     searches = build_searches(cfg)
-    pairs = sum(len(s["sets"]) for s in searches)
+    pairs = sum(sum(1 for x in s["sets"] if x.get("_ok", True)) for s in searches)
     limit = int(d.get("daily_call_limit", 5000)) - 300   # headroom for retries and manual runs
     pcfg = cfg.get("profit", {})
     comp_hours = float(pcfg.get("refresh_hours", 24)) if pcfg.get("enabled", True) else 0
@@ -342,7 +358,7 @@ def main():
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     json.dump({"updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-               "gem_rates": {f"{st['year']} {st['set']}": st.get("gem_rate") for s in searches for st in s["sets"] if st.get("gem_rate") is not None},
+               "gem_rates": {f"{st['year']} {st['set']}": st.get("gem_rate") for s in searches for st in s["sets"] if st.get("gem_rate") is not None and st.get("_ok", True)},
                "profit": {k: pcfg.get(k) for k in ("grading_fee", "ship_to_grader", "sell_fee_pct")},
                "dropped": dropped, "listings": listings},
               open(OUT, "w"), separators=(",", ":"))
