@@ -55,36 +55,72 @@ SPECS = [
 ]
 
 
-def demo_items():
-    from datetime import datetime, timezone, timedelta
-    out = os.path.join(HERE, "site", "demo"); os.makedirs(out, exist_ok=True)
-    now = datetime.now(timezone.utc)
-    items = []
-    for i, (bd, ang, p, price, seller, fb, auction, title, player, year, set_name, gem, _) in enumerate(SPECS):
-        name = f"card{i}.jpg"
-        _photo(*bd, ang, p, os.path.join(out, name))
-        imgs = [] if i == 7 else [{"imageUrl": f"demo/{name}"}]
-        items.append(({
-            "itemId": f"v1|demo{i}|0", "title": title,
-            "itemWebUrl": "https://www.ebay.com/sch/i.html?_nkw=" + title.replace(" ", "+").replace("#", ""),
-            "image": {"imageUrl": f"demo/{name}"}, "additionalImages": imgs,
-            "price": {"value": str(price), "currency": "USD"},
-            "shippingOptions": [{"shippingCost": {"value": "4.99" if i % 3 else "0.00"}}],
-            "buyingOptions": ["AUCTION"] if auction else ["FIXED_PRICE"],
-            "itemEndDate": (now + timedelta(hours=3 + 20 * i)).isoformat() if auction else None,
-            "itemCreationDate": (now - timedelta(hours=i)).isoformat(),
-            "seller": {"username": seller, "feedbackScore": fb, "feedbackPercentage": "99.8"},
-            "condition": "Ungraded",
-        }, {"player": player, "year": str(year), "category": "sports",
-            "sets": [{"year": year, "set": set_name, "gem_rate": gem}]}))
-    return items
+class DemoEbay:
+    """Stands in for eBay. Small mode: the cards in SPECS. Scale mode (--demo-scale): tens of
+    thousands of made-up listings, including one player-year over eBay's 10,000-result cap."""
 
+    def __init__(self, store, scale=False):
+        import random
+        from datetime import datetime, timezone, timedelta
+        from ebay import PAGE
+        self.store, self.used, self.budget = store, 0, 10 ** 9
+        out = os.path.join(HERE, "site", "demo"); os.makedirs(out, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        self.items = []
+        for i, (bd, ang, p, price, seller, fb, auction, title, player, year, set_name, gem, _) in enumerate(SPECS):
+            name = f"card{i}.jpg"
+            if not os.path.exists(os.path.join(out, name)):
+                _photo(*bd, ang, p, os.path.join(out, name))
+            self.items.append(self._item(f"v1|demo{i}|0", title, price, seller, fb, auction, f"demo/{name}",
+                                         now - timedelta(hours=i), now + timedelta(hours=3 + 20 * i), i))
+        if scale:
+            rnd = random.Random(1)
+            import yaml
+            sets = yaml.safe_load(open(os.path.join(HERE, "gem_rates.yaml")))["sets"]
+            cfg = yaml.safe_load(open(os.path.join(HERE, "config.yaml")))
+            for pl in cfg["players"]:
+                lo = int(str(pl.get("years", "2010-")).split("-")[0])
+                for y in range(max(lo, 2010), 2026):
+                    ys = [x for x in sets if x["sport"] == pl["sport"] and x["year"] == y and x["graded"] > 2000]
+                    if not ys:
+                        continue
+                    n = 15000 if (pl["name"], y) == ("Shohei Ohtani", 2018) else rnd.randint(50, 900)
+                    for k in range(n):
+                        st = rnd.choice(ys)
+                        self.items.append(self._item(
+                            f"v1|s{pl['name'][:3]}{y}{k}|0", f"{y} {st['set']} {pl['name']} #{rnd.randint(1, 350)}",
+                            round(rnd.uniform(10, 1000), 2), f"seller{rnd.randint(1, 4000)}", rnd.randint(1, 30000),
+                            rnd.random() < 0.3, f"demo/card{rnd.randint(0, len(SPECS) - 1)}.jpg",
+                            now - timedelta(minutes=rnd.randint(1, 60 * 24 * 90)),
+                            now + timedelta(hours=rnd.randint(1, 240)), k))
+        self.items.sort(key=lambda it: it["itemCreationDate"], reverse=True)
+        self.PAGE = PAGE
 
-def demo_comps():
-    """PSA 10 asking prices for the demo cards."""
-    import profit
-    c = {"groups": {"demo": {"at": "2099-01-01T00:00:00+00:00", "prices": {}}}}
-    for *_, title, player, year, set_name, gem, asks in SPECS:
-        if asks:
-            c["groups"]["demo"]["prices"]["|".join(profit.card_key(title, player, year, set_name))] = asks
-    return c
+    @staticmethod
+    def _item(iid, title, price, seller, fb, auction, img, listed, ends, i):
+        return {"itemId": iid, "title": title,
+                "itemWebUrl": "https://www.ebay.com/sch/i.html?_nkw=" + title.replace(" ", "+").replace("#", ""),
+                "image": {"imageUrl": img}, "additionalImages": [] if i % 9 == 7 else [{"imageUrl": img}],
+                "price": {"value": str(price), "currency": "USD"},
+                "shippingOptions": [{"shippingCost": {"value": "4.99" if i % 3 else "0.00"}}],
+                "buyingOptions": ["AUCTION"] if auction else ["FIXED_PRICE"],
+                "itemEndDate": ends.isoformat() if auction else None, "itemCreationDate": listed.isoformat(),
+                "seller": {"username": seller, "feedbackScore": fb}, "condition": "Ungraded"}
+
+    def search(self, q, category, d, cons, lo=None, hi=None, offset=0, newest=True):
+        from ebay import OutOfBudget, MAX_RESULTS
+        if self.used >= self.budget:
+            raise OutOfBudget()
+        self.used += 1
+        self.store.count_call()
+        words = [w for w in q.split() if not w.startswith("-") and not w.startswith('"')]
+        year = words[0] if words and words[0].isdigit() else None
+        name = " ".join(words[1:] if year else words).lower()
+        hits = [it for it in self.items
+                if name in it["title"].lower() and (not year or year in it["title"])
+                and (lo is None or float(it["price"]["value"]) >= lo)
+                and (hi is None or float(it["price"]["value"]) <= hi)]
+        return hits[offset:offset + self.PAGE] if offset < MAX_RESULTS else [], len(hits)
+
+    def item(self, iid):
+        return None

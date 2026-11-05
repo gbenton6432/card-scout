@@ -1,146 +1,57 @@
 """
-Card Scout: searches eBay for the cards in config.yaml, drops consigners,
-measures centering on the front photo, and writes site/data.json for the dashboard.
+Card Scout scanner.
+
+Keeps a database of every raw listing for your players in sets at or above your gem rate
+cutoff, and publishes the ones worth a look to the dashboard.
+
+Each run (hourly):
+  1. New listings: one newest-first search per player, stopping at listings already seen.
+  2. Inventory sweep: works through every player-year, a page at a time, with whatever
+     eBay calls are left in today's budget. Finds older listings and notices ones that ended.
+     Player-years with more than 10,000 results are split into price bands.
+  3. Measures centering on photos not measured yet (each photo once, ever).
+  4. Writes per-player data files for the dashboard, then sends alerts.
 
 Run:  EBAY_CLIENT_ID=... EBAY_CLIENT_SECRET=... python scout.py
 Test without eBay keys:  python scout.py --demo
 """
-import base64, json, math, os, re, sys, time
-from collections import Counter
+import json, math, os, re, statistics, sys, time
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 import yaml
 
+import alerts
+from cards import card_key
 from centering import measure
-import profit, alerts
+from ebay import Ebay, OutOfBudget, PAGE, MAX_RESULTS, big_image
+from store import Store, now_iso
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "site", "data.json")
-API = "https://api.ebay.com"
-CATEGORIES = {"sports": "261328",  # Sports Trading Card Singles
-              "tcg": "183454"}     # CCG Individual Cards (Pokémon, Magic, etc.)
-UNGRADED = "4000"                  # eBay trading-card condition id for "Ungraded"
-
-
-def token(cid, secret):
-    r = requests.post(
-        f"{API}/identity/v1/oauth2/token",
-        headers={"Authorization": "Basic " + base64.b64encode(f"{cid}:{secret}".encode()).decode(),
-                 "Content-Type": "application/x-www-form-urlencoded"},
-        data={"grant_type": "client_credentials", "scope": "https://api.ebay.com/oauth/api_scope"},
-        timeout=30)
-    if r.status_code != 200:
-        sys.exit(f"eBay sign-in failed ({r.status_code}): {r.text[:300]}\n"
-                 "Check the App ID / Cert ID, and that your Production keyset is enabled.")
-    return r.json()["access_token"]
-
-
-def search(tok, s, d, cons, graded=False):
-    if graded:  # PSA 10 comps for the profit estimate
-        filters = ["buyingOptions:{FIXED_PRICE}", f"conditionIds:{{{profit.GRADED}}}"]
-    else:
-        filters = [f"buyingOptions:{{{'|'.join(d.get('buying_options', ['FIXED_PRICE','AUCTION']))}}}"]
-    if not graded and (s.get("min_price") is not None or s.get("max_price") is not None):
-        filters += [f"price:[{s.get('min_price','')}..{s.get('max_price','')}]", "priceCurrency:USD"]
-    if not graded and d.get("raw_only", True):
-        filters.append(f"conditionIds:{{{UNGRADED}}}")
-    if d.get("ship_to_country"):
-        filters.append(f"deliveryCountry:{d['ship_to_country']}")
-    blocked = cons.get("blocked_sellers") or []
-    if blocked:
-        filters.append(f"excludeSellers:{{{'|'.join(blocked[:250])}}}")
-    params = {"q": profit.comp_query(s, d) if graded else s["query"],
-              "filter": ",".join(filters), "limit": 200, "sort": "newlyListed"}
-    cat = CATEGORIES.get(s.get("category", "sports"), s.get("category"))
-    if cat:
-        params["category_ids"] = cat
-    items, offset, cap = [], 0, 200 if graded else int(d.get("max_results_per_search", 400))
-    while offset < cap:
-        params["offset"] = offset
-        r = requests.get(f"{API}/buy/browse/v1/item_summary/search", params=params,
-                         headers={"Authorization": f"Bearer {tok}",
-                                  "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"}, timeout=30)
-        if r.status_code in (401, 403):
-            sys.exit(f"eBay refused the search ({r.status_code}): {r.text[:300]}\n"
-                     "Your keyset may need Browse API access — see README, step 1.")
-        r.raise_for_status()
-        page = r.json().get("itemSummaries", [])
-        items += page
-        if len(page) < params["limit"]:
-            break
-        offset += params["limit"]
-        time.sleep(0.3)
-    return items[:cap]
-
-
-def big_image(url):
-    return re.sub(r"s-l\d+", "s-l1600", url or "")
-
-
-def to_listing(it, meta):
-    imgs = [big_image((it.get("image") or {}).get("imageUrl"))]
-    imgs += [big_image(a.get("imageUrl")) for a in it.get("additionalImages", [])]
-    imgs = [u for u in imgs if u]
-    seller = it.get("seller") or {}
-    price = it.get("price") or it.get("currentBidPrice") or {}
-    ship = (it.get("shippingOptions") or [{}])[0].get("shippingCost", {})
-    return {
-        "id": it.get("itemId"), "title": it.get("title", ""), "url": it.get("itemWebUrl"),
-        "player": meta.get("player", ""), "year": str(meta.get("year", "")), "set": meta.get("set", ""),
-        "images": imgs,
-        "price": float(price.get("value", 0) or 0),
-        "shipping": float(ship.get("value", 0) or 0) if ship else None,
-        "auction": "AUCTION" in (it.get("buyingOptions") or []),
-        "ends": it.get("itemEndDate"), "listed": it.get("itemCreationDate"),
-        "seller": seller.get("username", ""), "feedback": seller.get("feedbackScore"),
-        "feedback_pct": seller.get("feedbackPercentage"),
-        "condition": it.get("condition", ""),
-    }
-
-
-def drop_consigners(listings, cons):
-    words = [w.lower() for w in cons.get("blocked_title_words") or []]
-    blocked = {s.lower() for s in cons.get("blocked_sellers") or []}
-    max_fb = int(cons.get("max_seller_feedback") or 0)
-    max_per = int(cons.get("max_listings_per_seller") or 0)
-    counts = Counter(l["seller"] for l in listings)
-    kept, dropped = [], Counter()
-    for l in listings:
-        t = l["title"].lower()
-        if l["seller"].lower() in blocked:
-            dropped["blocked seller"] += 1
-        elif any(w in t for w in words):
-            dropped["title keyword"] += 1
-        elif max_fb and (l["feedback"] or 0) > max_fb:
-            dropped["high-volume seller (feedback)"] += 1
-        elif max_per and counts[l["seller"]] > max_per:
-            dropped["high-volume seller (listing count)"] += 1
-        else:
-            kept.append(l)
-    return kept, dict(dropped)
-
-
-def fetch_and_measure(l, session):
-    if not l["images"]:
-        l["c"] = {"confidence": 0, "note": "no photos"}
-        return l
-    try:
-        src = l["images"][0]
-        if src.startswith("http"):
-            r = session.get(src, timeout=30)
-            r.raise_for_status()
-            data = r.content
-        else:  # demo images stored next to the dashboard
-            data = open(os.path.join(HERE, "site", src), "rb").read()
-        l["c"] = measure(data)
-    except Exception as e:
-        l["c"] = {"confidence": 0, "note": f"photo download failed ({type(e).__name__})"}
-    return l
-
-
+SITE_DATA = os.path.join(HERE, "site", "data")
 TCG_SPORTS = {"pokemon", "tcg", "magic", "mtg", "one piece", "lorcana", "yugioh", "yu-gi-oh"}
+YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+
+
+# ── Sets and title matching ─────────────────────────────────────────────
+
+def _norm(t):
+    return " " + re.sub(r"[^a-z0-9]+", " ", t.lower()).strip() + " "
+
+
+def _aliases(name):
+    """Ways sellers write a set name: 'Panini Donruss Optic' -> also 'Donruss Optic', 'Optic'."""
+    n = _norm(name).strip()
+    out = {n}
+    if n.startswith("panini "):
+        out.add(n[7:])
+    for full, short in (("donruss optic", "optic"), ("topps chrome update", "chrome update")):
+        for x in list(out):
+            if x.startswith(full):
+                out.add(short + x[len(full):])
+    return [f" {x} " for x in out if len(x) >= 4]
 
 
 def _years(spec):
@@ -154,96 +65,318 @@ def _years(spec):
     return int(spec), int(spec)
 
 
-def _norm(t):
-    return " " + re.sub(r"[^a-z0-9]+", " ", t.lower()).strip() + " "
-
-
 def load_gem_rates():
-    """Set list kept up to date automatically (see README: Keeping gem rates current)."""
     try:
         return yaml.safe_load(open(os.path.join(HERE, "gem_rates.yaml"))).get("sets") or []
     except FileNotFoundError:
         return []
 
 
-def _aliases(name):
-    """Ways sellers write a set name in titles: 'Panini Donruss Optic' -> also 'Donruss Optic', 'Optic'."""
-    n = _norm(name).strip()
-    out = {n}
-    if n.startswith("panini "):
-        out.add(n[7:])
-    for full, short in (("donruss optic", "optic"), ("topps chrome update", "chrome update")):
-        for x in list(out):
-            if x.startswith(full):
-                out.add(short + x[len(full):])
-    return [f" {x} " for x in out if len(x) >= 4]
+class Matcher:
+    """Finds a listing's year and set from its title and checks the set's gem rate."""
+
+    def __init__(self, cfg):
+        self.cutoff = float(cfg.get("gem_rate_min", 0) or 0)
+        self.sets = defaultdict(list)  # (sport, year) -> [set]
+        for st in list(cfg.get("sets") or []) + load_gem_rates():
+            sport = str(st.get("sport", "")).lower()
+            st = dict(st, _aliases=_aliases(st["set"]),
+                      _ok=float(st.get("gem_rate", 0) or 0) >= self.cutoff)
+            self.sets[(sport, int(str(st["year"])[:4]))].append(st)
+
+    def qualifying_years(self, sport, lo, hi):
+        return sorted(y for (sp, y), sts in self.sets.items()
+                      if sp == sport and lo <= y <= hi and any(s["_ok"] for s in sts))
+
+    def match(self, title, player):
+        """(year, set dict) if the title is from a qualifying set, else None."""
+        t = _norm(title)
+        for y in dict.fromkeys(int(m) for m in YEAR_RE.findall(title)):
+            if not (player["lo"] <= y <= player["hi"]):
+                continue
+            sets = self.sets.get((player["sport"], y))
+            if not sets:
+                continue
+            best, best_len = None, 0
+            for st in sets:
+                for a in st["_aliases"]:
+                    if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
+                        best, best_len = st, len(a)
+            if best:
+                return (y, best) if best["_ok"] else None
+        return None
 
 
-def build_searches(cfg):
-    """One eBay search per player per year: '<year> <player>'. Each result is matched to its
-    exact set by title (against every known set that year), and kept only if that set's
-    gem rate meets the cutoff. This keeps eBay calls low no matter how many sets qualify."""
-    d = cfg.get("defaults", {})
-    base_ex = [w.lower() for w in d.get("exclude_words") or []]
-    neg = " ".join(f'-"{w}"' if " " in w else f"-{w}" for w in base_ex)
-    cutoff = float(cfg.get("gem_rate_min", 0) or 0)
-    all_sets = list(cfg.get("sets") or []) + load_gem_rates()
-    by_sport_year = {}
-    for st in all_sets:
-        key = (str(st.get("sport", "")).lower(), int(str(st["year"])[:4]))
-        st = dict(st, _aliases=_aliases(st["set"]), _ok=float(st.get("gem_rate", 0) or 0) >= cutoff)
-        by_sport_year.setdefault(key, []).append(st)
+# ── Turning eBay results into listings ──────────────────────────────────
+
+def players_from(cfg):
     out = []
     for p in cfg.get("players") or []:
         lo, hi = _years(p.get("years"))
         sport = str(p.get("sport", "")).lower()
-        tcg = sport in TCG_SPORTS
-        years = sorted({y for (sp, y), sts in by_sport_year.items()
-                        if sp == sport and lo <= y <= hi and any(x["_ok"] for x in sts)})
-        if tcg:  # TCG sets aren't tied to a season; one search per character
-            years = [""] if years else []
-        for y in years:
-            sets = [x for (sp, yy), sts in by_sport_year.items() if sp == sport and (tcg or yy == y) for x in sts]
-            out.append({
-                "name": f"{p['name']} {y}".strip(), "player": p["name"], "year": str(y), "sets": sets,
-                "query": f"{y} {p['name']} {neg}".strip(),
-                "category": "tcg" if tcg else "sports",
-                "min_price": p.get("min_price", d.get("min_price")),
-                "max_price": p.get("max_price", d.get("max_price")),
-            })
-    for e in cfg.get("extra_searches") or []:
-        e = dict(e)
-        e.setdefault("player", e.get("name", "")); e.setdefault("year", "")
-        e["sets"] = [{"set": e.get("set", ""), "year": e.get("year", ""), "gem_rate": e.get("gem_rate")}]
-        e["exact"] = True
-        e.setdefault("min_price", d.get("min_price")); e.setdefault("max_price", d.get("max_price"))
-        out.append(e)
+        out.append({"name": p["name"], "sport": sport, "lo": lo, "hi": hi,
+                    "category": "tcg" if sport in TCG_SPORTS else "sports"})
     return out
 
 
-def match_set(title, s, qualifying_only=True):
-    """The set this listing belongs to (longest matching set name wins, so 'Topps Chrome Update'
-    beats 'Topps Chrome'), or None if it's another year or a set under the gem rate cutoff."""
-    if s.get("exact"):
-        st = s["sets"][0]
-        return {"year": str(st.get("year", "")), "set": st.get("set", ""), "gem_rate": st.get("gem_rate")}
-    t = _norm(title)
-    if s["year"] and f" {s['year']} " not in t:
-        return None
-    best, best_len = None, 0
-    for st in s["sets"]:
-        for a in st.get("_aliases") or _aliases(st["set"]):
-            if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
-                best, best_len = st, len(a)
-    if not best or (qualifying_only and not best.get("_ok", True)):
-        return None
-    return {"year": str(best["year"]), "set": best["set"], "gem_rate": best.get("gem_rate")}
+def neg_words(d):
+    return " ".join(f'-"{w}"' if " " in w else f"-{w}" for w in d.get("exclude_words") or [])
 
 
-def scan_interval(n_searches, daily_limit):
-    """Hours between scans so a day of scans stays under eBay's daily call limit."""
-    per_scan = max(1, n_searches) * 1.3 + 1   # ~30% of searches need a second page
-    return max(1, math.ceil(per_scan * 24 / daily_limit))
+def consigner_reason(it, cons):
+    title = (it.get("title") or "").lower()
+    seller = (it.get("seller") or {})
+    if (seller.get("username") or "").lower() in {s.lower() for s in cons.get("blocked_sellers") or []}:
+        return "blocked seller"
+    if any(w.lower() in title for w in cons.get("blocked_title_words") or []):
+        return "title keyword"
+    max_fb = int(cons.get("max_seller_feedback") or 0)
+    if max_fb and int(seller.get("feedbackScore") or 0) > max_fb:
+        return "high-volume seller (feedback)"
+    return None
+
+
+def to_listing(it, player, year, st):
+    imgs = [big_image((it.get("image") or {}).get("imageUrl"))]
+    imgs += [big_image(a.get("imageUrl")) for a in it.get("additionalImages", [])]
+    imgs = [u for u in imgs if u]
+    seller = it.get("seller") or {}
+    price = it.get("price") or it.get("currentBidPrice") or {}
+    ship = (it.get("shippingOptions") or [{}])[0].get("shippingCost")
+    number, parallel = card_key(it.get("title", ""), player["name"], st["set"], player["category"] == "tcg")
+    return {
+        "id": it.get("itemId"), "player": player["name"], "sport": player["sport"], "year": str(year),
+        "set_name": st["set"], "gem": st.get("gem_rate"), "title": it.get("title", ""),
+        "url": it.get("itemWebUrl"), "img": imgs[0] if imgs else "", "n_img": len(imgs),
+        "price": float(price.get("value", 0) or 0),
+        "ship": float(ship.get("value", 0) or 0) if ship else None,
+        "auction": int("AUCTION" in (it.get("buyingOptions") or [])),
+        "ends": it.get("itemEndDate"), "listed": it.get("itemCreationDate"),
+        "seller": seller.get("username", ""), "feedback": int(seller.get("feedbackScore") or 0),
+        "card": number, "parallel": parallel,
+    }
+
+
+class Scanner:
+    def __init__(self, cfg, store, ebay):
+        self.cfg, self.store, self.ebay = cfg, store, ebay
+        self.d, self.cons = cfg.get("defaults", {}), cfg.get("consigners", {})
+        self.matcher = Matcher(cfg)
+        self.players = players_from(cfg)
+        self.neg = neg_words(self.d)
+        self.stats = Counter()
+
+    def ingest(self, items, player):
+        """Store the qualifying listings from one page of results."""
+        for it in items:
+            if consigner_reason(it, self.cons):
+                self.stats["consigner"] += 1
+                continue
+            m = self.matcher.match(it.get("title", ""), player)
+            if not m:
+                self.stats["other set or under cutoff"] += 1
+                continue
+            if self.store.upsert(to_listing(it, player, *m)):
+                self.stats["new listings"] += 1
+
+    # 1. New listings
+    def new_listings(self, max_pages=3):
+        for p in self.players:
+            for page in range(max_pages):
+                items, _ = self.ebay.search(f"{p['name']} {self.neg}", p["category"], self.d, self.cons,
+                                            self.d.get("min_price"), self.d.get("max_price"), offset=page * PAGE)
+                seen_before = sum(1 for it in items if self.store.known(it.get("itemId")))
+                self.ingest(items, p)
+                if seen_before or len(items) < PAGE:
+                    break
+            self.store.commit()
+
+    # 2. Inventory sweep
+    def ensure_units(self):
+        want = set()
+        for p in self.players:
+            for y in self.matcher.qualifying_years(p["sport"], p["lo"], p["hi"]):
+                want.add((p["name"], str(y)))
+        have = {(r["player"], r["year"]) for r in self.store.db.execute("SELECT player, year FROM units")}
+        lo, hi = self.d.get("min_price"), self.d.get("max_price")
+        for player, year in want - have:
+            self.store.db.execute("INSERT INTO units(key,player,year,lo,hi) VALUES(?,?,?,?,?)",
+                                  (f"{player}|{year}|{lo}|{hi}", player, year, lo, hi))
+        for player, year in have - want:  # player removed or set no longer qualifies
+            self.store.db.execute("DELETE FROM units WHERE player=? AND year=?", (player, year))
+        self.store.commit()
+
+    def sweep(self):
+        by_name = {p["name"]: p for p in self.players}
+        run_start = now_iso()
+        while True:
+            u = self.store.db.execute(
+                "SELECT * FROM units ORDER BY (finished IS NOT NULL), finished, key LIMIT 1").fetchone()
+            if not u or (u["finished"] and u["finished"] >= run_start and u["next_offset"] == 0):
+                return  # nothing to do, or every unit already swept during this run
+            p = by_name[u["player"]]
+            if u["next_offset"] == 0:
+                self.store.db.execute("UPDATE units SET started=? WHERE key=?", (now_iso(), u["key"]))
+            items, total = self.ebay.search(f"{u['year']} {p['name']} {self.neg}", p["category"], self.d,
+                                            self.cons, u["lo"], u["hi"], offset=u["next_offset"])
+            hi_cap = u["hi"] if u["hi"] is not None else 100000
+            if total > MAX_RESULTS - PAGE and hi_cap - (u["lo"] or 0) > 2:
+                # Too many results to page through: split into two price bands
+                lo, hi = u["lo"] or 0, hi_cap
+                mid = round(lo + (hi - lo) / 2, 2)
+                self.store.db.execute("DELETE FROM units WHERE key=?", (u["key"],))
+                for a, b in ((lo, mid), (mid + 0.01, hi)):
+                    self.store.db.execute("INSERT OR IGNORE INTO units(key,player,year,lo,hi) VALUES(?,?,?,?,?)",
+                                          (f"{p['name']}|{u['year']}|{a}|{b}", p["name"], u["year"], a, b))
+                self.store.commit()
+                continue
+            self.ingest(items, p)
+            nxt = u["next_offset"] + PAGE
+            if len(items) < PAGE or nxt >= min(total, MAX_RESULTS):
+                # Finished this unit: anything here not seen since it started has ended
+                started = self.store.db.execute("SELECT started FROM units WHERE key=?", (u["key"],)).fetchone()[0]
+                gone = self.store.db.execute(
+                    "UPDATE listings SET active=0 WHERE active=1 AND player=? AND year=? AND price BETWEEN ? AND ? "
+                    "AND last_seen < ?", (p["name"], u["year"], u["lo"] or 0, u["hi"] or 1e12, started)).rowcount
+                self.stats["ended (found by sweep)"] += gone
+                self.store.db.execute("UPDATE units SET total=?, next_offset=0, finished=? WHERE key=?",
+                                      (total, now_iso(), u["key"]))
+            else:
+                self.store.db.execute("UPDATE units SET total=?, next_offset=? WHERE key=?", (total, nxt, u["key"]))
+            self.store.commit()
+
+    def end_auctions(self):
+        n = self.store.db.execute("UPDATE listings SET active=0 WHERE active=1 AND auction=1 AND ends < ?",
+                                  (now_iso(),)).rowcount
+        self.stats["auctions ended"] += n
+        self.store.commit()
+
+
+# ── 3. Centering, measured once per listing ─────────────────────────────
+
+def measure_new(store, minutes, demo=False):
+    deadline = time.time() + minutes * 60
+    http = requests.Session()
+
+    def one(row):
+        if time.time() > deadline:
+            return row["id"], None
+        try:
+            if row["img"].startswith("http"):
+                r = http.get(row["img"], timeout=30)
+                r.raise_for_status()
+                data = r.content
+            else:
+                data = open(os.path.join(HERE, "site", row["img"]), "rb").read()
+            return row["id"], measure(data)
+        except Exception as e:
+            return row["id"], {"confidence": 0, "note": f"photo didn't load ({type(e).__name__})"}
+
+    done = 0
+    while time.time() < deadline:
+        rows = store.db.execute("SELECT id, img FROM listings WHERE active=1 AND measured_at IS NULL "
+                                "ORDER BY first_seen DESC LIMIT 400").fetchall()
+        if not rows:
+            break
+        with ThreadPoolExecutor(16) as pool:
+            for iid, c in pool.map(one, rows):
+                if c is None:
+                    continue
+                store.db.execute("UPDATE listings SET c=?, measured_at=? WHERE id=?", (json.dumps(c), now_iso(), iid))
+                done += 1
+        store.commit()
+    left = store.db.execute("SELECT COUNT(*) FROM listings WHERE active=1 AND measured_at IS NULL").fetchone()[0]
+    print(f"Measured {done} photos; {left} waiting for the next run")
+    return done, left
+
+
+# ── 4. Dashboard data ───────────────────────────────────────────────────
+
+def slug(name):
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def off_center(c, photos):
+    bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
+    return c.get("confidence", 0) >= float(photos.get("min_confidence_to_drop", 0.6)) and c.get("worst", 0) > bar
+
+
+def publish(store, cfg, scanner, run_stats):
+    photos, cons = cfg.get("photos", {}), cfg.get("consigners", {})
+    rows = [dict(r) for r in store.db.execute("SELECT * FROM listings WHERE active=1")]
+    for r in rows:
+        r["c"] = json.loads(r["c"]) if r["c"] else None
+    max_per = int(cons.get("max_listings_per_seller") or 0)
+    per_seller = Counter(r["seller"] for r in rows)
+    shown, dropped = [], Counter()
+    for r in rows:
+        if max_per and per_seller[r["seller"]] > max_per:
+            dropped["high-volume seller (listing count)"] += 1
+        elif r["c"] and off_center(r["c"], photos):
+            dropped["clear photo, worse than PSA 10 centering"] += 1
+        else:
+            shown.append(r)
+
+    # Typical asking price for the same card (same player, year, set, number, parallel)
+    groups = defaultdict(list)
+    for r in rows:
+        if r["card"]:
+            groups[(r["player"], r["year"], r["set_name"], r["card"], r["parallel"])].append(r["price"] + (r["ship"] or 0))
+    typical = {k: statistics.median(v) for k, v in groups.items() if len(v) >= 3}
+
+    os.makedirs(os.path.join(SITE_DATA, "players"), exist_ok=True)
+    by_player = defaultdict(list)
+    for r in shown:
+        c = r["c"] or {}
+        t = typical.get((r["player"], r["year"], r["set_name"], r["card"], r["parallel"]))
+        by_player[r["player"]].append({
+            "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
+            "p": r["price"], "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"],
+            "f": r["first_seen"], "sl": r["seller"], "fb": r["feedback"], "y": r["year"],
+            "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
+            "x": round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None,
+            "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
+                  "q": c.get("quad"), "note": c.get("note")} if r["c"] else None,
+        })
+    players = []
+    for p in scanner.players:
+        items = by_player.get(p["name"], [])
+        fn = f"players/{slug(p['name'])}.json"
+        json.dump(items, open(os.path.join(SITE_DATA, fn), "w"), separators=(",", ":"))
+        players.append({"name": p["name"], "sport": p["sport"], "file": fn, "count": len(items)})
+
+    units = [dict(u) for u in store.db.execute("SELECT * FROM units")]
+    sweep_calls = sum(max(1, math.ceil(min(u["total"] or PAGE, MAX_RESULTS) / PAGE)) for u in units)
+    daily_sweep = max(1, budget_for_day(cfg) - 24 * len(scanner.players))
+    index = {
+        "updated": now_iso(), "players": players, "min_photos": photos.get("min_photos", 2),
+        "stats": {
+            "active": len(rows), "shown": len(shown),
+            "measured": sum(1 for r in rows if r["c"]), "dropped": dict(dropped),
+            "consigners_skipped": run_stats.get("consigner", 0),
+            "units": len(units), "units_done": sum(1 for u in units if u["finished"]),
+            "sweep_days": round(sweep_calls / daily_sweep, 1),
+            "listings_on_ebay": sum(u["total"] or 0 for u in units),
+            "calls_today": store.calls_today(),
+        },
+    }
+    json.dump(index, open(os.path.join(SITE_DATA, "index.json"), "w"), separators=(",", ":"))
+    print(f"Published {len(shown)} of {len(rows)} active listings; full sweep ≈ {index['stats']['sweep_days']} days "
+          f"({sweep_calls} calls); dropped {dict(dropped)}")
+    return [x for items in by_player.values() for x in items]
+
+
+# ── Budget ──────────────────────────────────────────────────────────────
+
+def budget_for_day(cfg):
+    return int(cfg.get("defaults", {}).get("daily_call_limit", 5000)) - 200  # headroom for reminders/manual runs
+
+
+def budget_for_run(cfg, store):
+    """Spread what's left of today's calls evenly over the hours left today (UTC)."""
+    left = budget_for_day(cfg) - store.calls_today()
+    hours_left = 24 - datetime.now(timezone.utc).hour
+    return max(0, left // max(1, hours_left))
 
 
 def set_output(**kv):
@@ -256,121 +389,50 @@ def set_output(**kv):
 
 def main():
     cfg = yaml.safe_load(open(os.path.join(HERE, "config.yaml")))
-    d, cons, photos = cfg.get("defaults", {}), cfg.get("consigners", {}), cfg.get("photos", {})
+    demo = "--demo" in sys.argv or "--demo-scale" in sys.argv
+    store = Store(os.path.join(HERE, "cache", "listings.db"))
+    a = cfg.get("alerts", {})
 
-    searches = build_searches(cfg)
-    pairs = sum(sum(1 for x in s["sets"] if x.get("_ok", True)) for s in searches)
-    limit = int(d.get("daily_call_limit", 5000)) - 300   # headroom for retries and manual runs
-    pcfg = cfg.get("profit", {})
-    comp_hours = float(pcfg.get("refresh_hours", 24)) if pcfg.get("enabled", True) else 0
-    comp_calls = len(searches) * 24 / comp_hours if comp_hours else 0
-    every = scan_interval(len(searches), limit - comp_calls)
-    print(f"{pairs} player × set pairs grouped into {len(searches)} eBay searches; "
-          f"scanning every {every} hour{'s' if every > 1 else ''} keeps under {limit + 300:,} calls/day")
-    if "--list" in sys.argv:
-        for s in searches:
-            print(f"  {s['query']}")
-        return
-    # Shortlist auction reminders run on every wake-up (twice an hour); they cost ~1 call each
-    if "--demo" not in sys.argv and os.environ.get("EBAY_CLIENT_ID"):
-        _tok = {}
-        def live_item(iid):
-            _tok.setdefault("t", token(os.environ["EBAY_CLIENT_ID"], os.environ["EBAY_CLIENT_SECRET"]))
-            r = requests.get(f"{API}/buy/browse/v1/item/{requests.utils.quote(iid, safe='')}",
-                             headers={"Authorization": f"Bearer {_tok['t']}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
-                             timeout=30)
-            return r.json() if r.ok else None
-        alerts.remind(cfg.get("alerts", {}), live_item)
-
-    # Full scans: once an hour at most, less often if the call budget needs it
-    now = datetime.now(timezone.utc)
-    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and (now.minute >= 30 or now.hour % every):
-        print("Reminder check only; no full scan this time.")
-        set_output(ran="false")
-        return
-
-    if "--demo" in sys.argv:
-        from demo import demo_items
-        raw = demo_items()
+    if demo:
+        from demo import DemoEbay
+        ebay = DemoEbay(store, scale="--demo-scale" in sys.argv)
     else:
         cid, sec = os.environ.get("EBAY_CLIENT_ID"), os.environ.get("EBAY_CLIENT_SECRET")
         if not cid or not sec:
             sys.exit("Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (see README).")
-        tok = token(cid, sec)
-        raw = []
-        for s in searches:
-            found = search(tok, s, d, cons)
-            print(f"{s['name']}: {len(found)} listings")
-            raw += [(it, s) for it in found]
+        ebay = Ebay(cid, sec, store, budget=10 ** 9)
+        # Shortlist auction reminders run on every wake-up (twice an hour)
+        alerts.remind(a, ebay.item)
 
-    seen, listings = set(), []
-    off_set = 0
-    for it, s in raw:
-        if it.get("itemId") in seen:
-            continue
-        m = match_set(it.get("title", ""), s)
-        if not m:
-            off_set += 1
-            continue
-        seen.add(it.get("itemId"))
-        l = to_listing(it, {"player": s["player"], **m})
-        l["tcg"] = s.get("category") == "tcg"
-        listings.append(l)
-    print(f"{off_set} results dropped because the title didn't match a qualifying year/set")
+    now = datetime.now(timezone.utc)
+    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
+        print("Reminder check only; the full scan runs at the top of the hour.")
+        set_output(ran="false")
+        return
 
-    total = len(listings)
-    listings, dropped = drop_consigners(listings, cons)
-    print(f"{total} unique listings, {total - len(listings)} dropped as consigners/dealers: {dropped}")
+    scanner = Scanner(cfg, store, ebay)
+    scanner.ensure_units()
+    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else budget_for_run(cfg, store)
+    print(f"{len(scanner.players)} players, {store.db.execute('SELECT COUNT(*) FROM units').fetchone()[0]} "
+          f"player-year sweeps; {ebay.budget} eBay calls for this run ({store.calls_today()} used today)")
+    if "--list" in sys.argv:
+        for u in store.db.execute("SELECT * FROM units ORDER BY player, year"):
+            print(f"  {u['player']} {u['year']}  ${u['lo']}-{u['hi']}  total={u['total']}")
+        return
+    try:
+        scanner.new_listings()
+        scanner.sweep()
+    except OutOfBudget:
+        pass
+    store.commit()
+    scanner.end_auctions()
+    print(f"Used {ebay.used} eBay calls. {dict(scanner.stats)}")
 
-    with requests.Session() as sess, ThreadPoolExecutor(8) as pool:
-        listings = list(pool.map(lambda l: fetch_and_measure(l, sess), listings))
-
-    min_photos = int(photos.get("min_photos", 2))
-    for l in listings:
-        flags = []
-        if len(l["images"]) < min_photos:
-            flags.append(f"only {len(l['images'])} photo")
-        if l["c"].get("confidence", 0) < 0.35:
-            flags.append("centering unreadable")
-        l["flags"] = flags
-    # Drop only cards whose photo is clear enough to trust AND shows centering worse than
-    # the PSA 10 bar. Unclear photos stay on the dashboard for you to judge.
-    bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
-    sure = float(photos.get("min_confidence_to_drop", 0.6))
-    before = len(listings)
-    listings = [l for l in listings
-                if not (l["c"].get("confidence", 0) >= sure and l["c"].get("worst", 0) > bar)]
-    print(f"{before - len(listings)} listings dropped: clear photo, centering worse than PSA 10")
-    if photos.get("hide_low_confidence"):
-        listings = [l for l in listings if l["c"].get("confidence", 0) >= 0.35]
-
-    if pcfg.get("enabled", True):
-        comps = profit.load()
-        if "--demo" in sys.argv:
-            from demo import demo_comps
-            comps = demo_comps()
-        else:
-            todo = [s for s in searches if profit.stale(comps, s["query"], comp_hours)]
-            for s in todo:
-                profit.store(comps, s["query"], s, search(tok, s, d, cons, graded=True))
-            live = {s["query"] for s in searches}
-            comps["groups"] = {q: g for q, g in comps["groups"].items() if q in live}
-            profit.save(comps)
-            print(f"PSA 10 comps refreshed for {len(todo)} searches")
-        for l in listings:
-            profit.estimate(comps, l, pcfg)
-        n = sum(1 for l in listings if l.get("est"))
-        print(f"Profit estimates for {n} of {len(listings)} listings")
-
-    alerts.run(listings, cfg.get("alerts", {}), demo="--demo" in sys.argv)
-
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    json.dump({"updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-               "gem_rates": {f"{st['year']} {st['set']}": st.get("gem_rate") for s in searches for st in s["sets"] if st.get("gem_rate") is not None and st.get("_ok", True)},
-               "profit": {k: pcfg.get(k) for k in ("grading_fee", "ship_to_grader", "sell_fee_pct")},
-               "dropped": dropped, "listings": listings},
-              open(OUT, "w"), separators=(",", ":"))
-    print(f"Wrote {len(listings)} listings to {OUT}")
+    minutes = float(os.environ.get("MEASURE_MINUTES") or cfg.get("photos", {}).get("measure_minutes", 25))
+    measure_new(store, minutes, demo)
+    shown = publish(store, cfg, scanner, scanner.stats)
+    alerts.run(store, shown, a, demo=demo)
+    store.commit()
     set_output(ran="true")
 
 

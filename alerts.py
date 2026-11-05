@@ -8,65 +8,57 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SEEN = os.path.join(HERE, "cache", "alerted.json")
 
 
 def qualifies(l, a):
     c = l.get("c") or {}
-    if a.get("psa10_centering_only", True) and not (c.get("confidence", 0) >= 0.35 and c.get("worst", 99) <= 55.5):
+    if a.get("psa10_centering_only", True) and not ((c.get("cf") or 0) >= 0.35 and (c.get("w") or 99) <= 55.5):
         return False
-    if a.get("max_price") and l["price"] > float(a["max_price"]):
+    if a.get("max_price") and l["p"] > float(a["max_price"]):
         return False
-    if a.get("buy_it_now_only", True) and l["auction"]:
+    if a.get("buy_it_now_only", True) and l["a"]:
         return False
-    est = l.get("est")
-    if a.get("min_profit") is not None:
-        if est is None:
-            return not a.get("require_profit_estimate", False)
-        return est["profit"] >= float(a["min_profit"])
+    if a.get("max_times_typical_ask") and l.get("x") and l["x"] > float(a["max_times_typical_ask"]):
+        return False
     return True
 
 
+def _split(v):
+    a = round(max(v, 100 - v))
+    return f"{a}/{100 - a}"
+
+
 def _row(l):
-    est = l.get("est")
-    profit = f"${est['profit']:,.0f}" if est else "–"
-    c = l["c"].get("centering", "–")
-    sale = "Auction" if l["auction"] else "BIN"
-    return f"| [{l['title'][:70]}]({l['url']}) | ${l['price']:,.2f} | {sale} | {c} | {profit} |"
+    c = l.get("c") or {}
+    cen = f"{_split(c['lr'])} · {_split(c['tb'])}" if c.get("lr") is not None else "–"
+    return f"| [{l['t'][:70]}]({l['u']}) | ${l['p']:,.2f} | {cen} | {l.get('g', '–')}% |"
 
 
-def run(listings, a, demo=False):
+def run(store, shown, a, demo=False):
+    """Alert once per listing for new Buy It Now cards that pass the alert rules."""
     if not a.get("enabled", True):
         return
-    try:
-        seen = json.load(open(SEEN))
-        first_run = False
-    except Exception:
-        seen, first_run = {}, True
-    now = datetime.now(timezone.utc)
-    cutoff = (now - timedelta(days=45)).isoformat()
-    seen = {k: v for k, v in seen.items() if v > cutoff}
-
-    new = [l for l in listings if l["id"] not in seen and qualifies(l, a)]
-    for l in listings:
-        if qualifies(l, a):
-            seen[l["id"]] = now.isoformat(timespec="seconds")
-    os.makedirs(os.path.dirname(SEEN), exist_ok=True)
-    json.dump(seen, open(SEEN, "w"))
-
+    fresh = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    already = {r[0] for r in store.db.execute("SELECT id FROM listings WHERE alerted=1")}
+    new = [l for l in shown if l["id"] not in already and l["f"] >= fresh and qualifies(l, a)]
+    first_run = not store.get("alerts_started")
+    store.db.executemany("UPDATE listings SET alerted=1 WHERE id=?", [(l["id"],) for l in new])
     if first_run:
+        store.put("alerts_started", True)
+        # Don't alert on everything already listed the first time; mark it all as seen
+        store.db.execute("UPDATE listings SET alerted=1")
         print(f"Alerts: first run, {len(new)} current matches recorded without alerting.")
         return
     if not new:
         print("Alerts: nothing new.")
         return
-    new.sort(key=lambda l: -(l["est"]["profit"] if l.get("est") else -1e9))
-    repo, tok = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
-    owner, name = (repo or "/").split("/")
+    new.sort(key=lambda l: (l.get("c") or {}).get("w") or 99)
+    repo = os.environ.get("GITHUB_REPOSITORY") or "/"
+    owner, name = repo.split("/")
     body = "\n".join([
-        f"**{len(new)} new card{'s' if len(new) > 1 else ''}** passed your alert rules.",
+        f"**{len(new)} new Buy It Now card{'s' if len(new) > 1 else ''}** passed your alert rules.",
         f"[Open the dashboard](https://{owner.lower()}.github.io/{name}/)", "",
-        "| Card | Price | Sale | Centering | Est. profit |", "|---|---|---|---|---|",
+        "| Card | Price | Centering | Set gem rate |", "|---|---|---|---|",
         *[_row(l) for l in new[:40]],
         "" if len(new) <= 40 else f"\n…and {len(new) - 40} more on the dashboard.",
     ])

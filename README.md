@@ -1,6 +1,6 @@
 # Card Scout
 
-Searches eBay as often as eBay's free limit allows (usually hourly) for the cards you list in `config.yaml`, removes consigners and big dealers, measures centering on each front photo, and publishes a dashboard with zoomed-in corners and links to each listing. Everything runs on free GitHub and eBay accounts.
+Keeps track of every raw eBay listing for your players in sets with a high PSA 10 gem rate, removes consigners and big dealers, measures centering on each front photo, and publishes a dashboard with zoomed-in corners, price filters and links to each listing and its PSA 10 sold comps. Everything runs on free GitHub and eBay accounts.
 
 Setup takes about 30–40 minutes and is much easier on a computer than a phone.
 
@@ -77,33 +77,29 @@ In the Claude app, connect GitHub and give it access to the `card-scout` repo. C
 
 Edit `config.yaml` on GitHub (open the file, tap the pencil, commit). A new scan starts right away.
 
-You keep two lists, and the scanner pairs them up:
-
 ```yaml
-gem_rate_min: 40
+gem_rate_min: 50
 
 players:
-  - name: Victor Wembanyama
-    sport: basketball
-    years: 2023-        # 2023 to today
-  - name: Pikachu
-    sport: pokemon      # no years = every set
-
-sets:                   # normally kept in gem_rates.yaml for you
-  - {year: 2023, set: Prizm,        sport: basketball, gem_rate: 46, exclude: [draft picks]}
-  - {year: 2024, set: Topps Chrome, sport: basketball, gem_rate: 52}
-  - {year: 2023, set: Pokemon 151,  sport: pokemon,    gem_rate: 55}
+  - {name: Victor Wembanyama, sport: basketball, years: 2023-}   # 2023 to today
+  - {name: LeBron James,      sport: basketball, years: 2003-}
 ```
 
-Every player gets searched in every set that matches their sport, falls inside their years, and is at or above `gem_rate_min`. Sets below the cutoff can stay in the list; they're skipped until you lower the cutoff.
-
-Tips:
-- Write `set` the way sellers write it in titles ("Prizm", "Topps Chrome", "Obsidian Flames").
-- Use `exclude` when a set name also matches another product, e.g. Prizm vs. Prizm Draft Picks.
+- A card is kept when its **set's** overall PSA 10 gem rate (from `gem_rates.yaml`) is at or above `gem_rate_min`, whatever player is on it.
+- `sport` must be baseball, basketball, football or soccer (the sports in `gem_rates.yaml`).
 - Slabs, lots, reprints and customs are excluded from every search (`exclude_words` under `defaults`).
-- Searches are grouped: each player's sets from the same year go into one eBay search, and results are matched back to the exact set by title. 11 players across 100+ sets is still only about 100 calls a scan.
-- The scanner works out its own pace from eBay's daily limit (5,000 calls on a new account): hourly for most lists, every 2 hours if your list gets very large. Nothing to manage.
-- Need more? Request a higher limit through eBay's free **Application Growth Check**, then raise `daily_call_limit` in `config.yaml`.
+- Price limits for what's collected are `min_price` / `max_price` under `defaults`. The dashboard has its own price filter on top.
+
+## How scanning works
+
+eBay limits an app to about 5,000 requests a day, 200 listings per request, and 10,000 results for any one search. To still see every listing, the scanner keeps a database of what it has found (stored between runs) and spends the day's requests in two ways each hour:
+
+1. **New listings:** one newest-first search per player ("Shohei Ohtani"), stopping as soon as it reaches listings it has already seen. About 50 requests an hour for 50 players.
+2. **Inventory sweep:** everything left over in the hour's share of the budget goes to working through each player's full catalog, one player-year at a time ("2018 Shohei Ohtani"). A player-year with more than 10,000 listings is automatically split into price bands. Finishing a player-year also tells it which listings have sold or ended.
+
+Each listing's title is matched to its exact year and set (the longest matching set name wins, so Topps Chrome Update isn't mistaken for Topps Chrome), and only qualifying sets are kept. Each photo is measured once, in the background, up to 25 minutes per run, so a big first sweep takes a few runs to finish measuring.
+
+The dashboard header shows how far the first sweep has got and how often a full sweep cycles. If a full cycle takes too long for your list, request a higher limit through eBay's free **Application Growth Check** and raise `daily_call_limit` in `config.yaml`.
 
 ## Keeping gem rates current
 
@@ -111,7 +107,6 @@ Tips:
 
 - **Adding a player** needs no gem rate work. Add one line under `players` and they're searched across every qualifying set already on file.
 - **New sets and updated rates** come from a monthly scheduled task. Claude opens GemRate in the Claude desktop app's built-in browser (the app needs to be open and the computer awake), re-reads the Set Summary pages, and saves the new file here. The dashboard rescans when it changes.
-- **How searching works:** each player gets one eBay search per year (e.g. "2018 Shohei Ohtani"). Every result is matched to its exact set by title, choosing the longest matching set name, so a Topps Chrome Update card isn't mistaken for Topps Chrome. Results from sets under `gem_rate_min` are dropped.
 - The scripts in `tools/` are what the refresh runs.
 
 ## How consigners get removed
@@ -124,22 +119,17 @@ A listing is dropped if any of these are true (all adjustable in `config.yaml`):
 
 The dashboard header shows how many listings were removed each scan. If you think good sellers are being dropped, raise the two numbers.
 
-## Profit estimate
+## Prices
 
-Each card shows **PSA 10 ≈ $X** and an **estimated profit**:
-
-PSA 10 value × (1 − eBay fee) − your price and shipping − grading fee − shipping to PSA
-
-- PSA 10 value comes from current eBay PSA 10 Buy It Now listings of the same card: same player, year, set, card number and parallel. Asking prices run above sale prices, so it uses the lower quartile of the asks, not the average.
-- Cards whose PSA 10 version isn't listed right now show "No PSA 10 comps found". Base cards match best; rare parallels often have no comps.
-- Fees are in `config.yaml` under `profit` (default: PSA Value tier $39.99, $5 shipping, 13.25% eBay fee).
-- Comps refresh once a day, so they barely touch your eBay call budget.
+- **PSA 10 sold comps:** each card has a button that opens eBay's sold listings for the PSA 10 version of that card (year, set, player, card number and parallel). There's no free automated source of sold prices, so this is a one-tap manual check.
+- **Price filter:** set a min and max asking price on the dashboard.
+- **Vs. typical ask:** each card shows how its price compares with the median price of other current raw listings of the same card (shown once there are at least 3). "Up to 2× typical ask" hides listings priced far above the rest. This compares asking prices, not sales.
 
 ## Alerts
 
 Two kinds, both delivered as GitHub issues (email, plus push through the GitHub app):
 
-- **New Buy It Now listings** that pass the rules under `alerts` in `config.yaml` (default: 55/45 centering or better, at least $50 est. profit, under $500). New auctions don't alert. The first scan only records what's already listed, so you aren't flooded on day one.
+- **New Buy It Now listings** that pass the rules under `alerts` in `config.yaml` (default: 55/45 centering or better, under $500, and no more than 2× the typical ask for that card). New auctions don't alert. The first scan only records what's already listed, so you aren't flooded on day one.
 - **Auction reminders:** about an hour before any auction on your shortlist ends (45–75 minutes, since the scanner checks twice an hour), with the current bid. Needs shortlist sync (step 6).
 
 ## Using the dashboard
@@ -147,15 +137,18 @@ Two kinds, both delivered as GitHub issues (email, plus push through the GitHub 
 - **Sorted by best centering** by default. Green = within PSA 10's 55/45, amber = PSA 9 range (60/40), red = worse.
 - **Four corner zooms** per card. Tap one to enlarge and look for white specks, rounding, or fraying.
 - **Shortlist** keeps candidates (synced across devices once step 6 is done); **Dismiss** hides ones you've ruled out. **New** marks listings that appeared since your last visit. Dismissed and New are remembered per browser.
-- **Centering unreadable** means the photo was too glary, angled, in a slab, or a full-art card with no borders. Those are hidden by default; tap the filter to see them.
+- **Removed automatically:** cards whose photo is clear and measures worse than 55/45 (with 1.5 points allowed for measurement error).
+- **Centering unclear** means the photo was too glary, angled, in a slab, or borderless. Those stay visible for you to judge; **Measured only** hides them.
+- **Measuring soon** means the photo is still queued.
+- Results show 40 at a time; **Show more** loads the next 40. With a very large inventory the dashboard opens on one player.
 
 ## Limits to know
 
 - Centering is from the seller's photo. Crooked or cropped photos can be off by a few points, so treat 55/45–57/43 as borderline and check by eye.
 - It reads the first photo as the front. Back centering isn't measured.
 - Corners and edges are for you to judge from the zooms; photo quality decides how much you can see.
-- eBay allows 5,000 searches a day on a new account. Each search here uses 1–2 calls per scan, so you can track dozens of players.
+- eBay allows about 5,000 requests a day on a new account. New listings are always caught within the hour; how often older listings are re-checked depends on how big your players' inventory is (see How scanning works).
 
 ## Preview without eBay keys
 
-On a computer with Python: `pip install -r requirements.txt`, then `python scout.py --demo`, then open `site/index.html` through a local server (`python -m http.server -d site`) and visit `http://localhost:8000`.
+On a computer with Python: `pip install -r requirements.txt`, then `python scout.py --demo`, or `python scout.py --demo-scale` for tens of thousands of made-up listings, then open `site/index.html` through a local server (`python -m http.server -d site`) and visit `http://localhost:8000`.

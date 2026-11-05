@@ -67,16 +67,13 @@ select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible {
 .price { font: 600 1.15rem var(--f-data); font-variant-numeric: tabular-nums }
 .pills { display: flex; flex-wrap: wrap; gap: 6px }
 .pill { font: 600 .74rem var(--f-body); letter-spacing: .03em; padding: 3px 8px; border-radius: 4px; text-transform: uppercase }
+.pill { background: var(--bg); color: var(--muted); border: 1px solid var(--line) }
+.pill.good, .pill.warn, .pill.bad, .pill.new { border-color: transparent }
 .pill.good { background: var(--good-bg); color: var(--good) }
 .pill.warn { background: var(--warn-bg); color: var(--warn) }
 .pill.bad { background: var(--bad-bg); color: var(--bad) }
 .pill.new { background: var(--accent); color: var(--panel) }
 
-.profit { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font: 500 .9rem var(--f-data); font-variant-numeric: tabular-nums }
-.profit small { color: var(--muted); font-family: var(--f-body); font-size: .72rem; margin-left: 4px }
-.profit b { font-weight: 600 }
-.profit.up b { color: var(--good) }
-.profit.down b { color: var(--bad) }
 .split { font: 500 .9rem var(--f-data); font-variant-numeric: tabular-nums; display: flex; gap: 14px; flex-wrap: wrap }
 .split span small { color: var(--muted); font-family: var(--f-body); font-size: .72rem; margin-left: 3px }
 
@@ -91,6 +88,11 @@ select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel) }
 .btn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 
+.price-range { display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font: 600 .82rem var(--f-body) }
+.price-range input { width: 64px; border: 0; background: transparent; color: var(--ink); font: 500 .85rem var(--f-data); padding: 5px 2px }
+.price-range input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
+.btn.more { justify-self: center; padding: 10px 22px }
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; background: var(--panel); border: 1px dashed var(--line); border-radius: 10px }
 .legend { font-size: .8rem; color: var(--muted) }
 
@@ -107,7 +109,8 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
 
 @media (max-width: 640px) {
   .bar { position: static; display: grid; grid-template-columns: 1fr 1fr }
-  .bar select { width: 100% }
+  .bar select, .price-range { width: 100% }
+  .price-range input { flex: 1; min-width: 0 }
   .row { grid-template-columns: 96px minmax(0,1fr) }
   .photo { width: 96px }
   .loupes { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0,1fr)) }
@@ -136,21 +139,33 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     </select>
     <select id="f-sort" aria-label="Sort">
       <option value="center">Best centering</option>
-      <option value="profit">Highest est. profit</option>
+      <option value="value">Lowest vs. typical ask</option>
       <option value="price">Lowest price</option>
       <option value="new">Newest</option>
       <option value="ending">Auctions ending soon</option>
     </select>
+    <div class="price-range" role="group" aria-label="Asking price">
+      <label for="f-min">$</label><input id="f-min" type="number" inputmode="decimal" min="0" placeholder="Min" aria-label="Minimum price">
+      <span aria-hidden="true">–</span>
+      <label for="f-max" class="sr">Max</label><input id="f-max" type="number" inputmode="decimal" min="0" placeholder="Max" aria-label="Maximum price">
+    </div>
+    <select id="f-x" aria-label="Asking price vs. typical ask">
+      <option value="">Any vs. typical ask</option>
+      <option value="1.5">Up to 1.5× typical ask</option>
+      <option value="2">Up to 2× typical ask</option>
+      <option value="3">Up to 3× typical ask</option>
+      <option value="5">Up to 5× typical ask</option>
+    </select>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
-    <button class="chip" id="f-profit" aria-pressed="false">Profitable</button>
     <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
     <button class="chip" id="f-star" aria-pressed="false">★ Shortlist</button>
     <button class="chip" id="f-hidden" aria-pressed="false">Show dismissed</button>
     <button class="chip" id="open-sync">Shortlist sync: off</button>
   </div>
 
-  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Profit uses current PSA 10 asking prices for the same card, minus fees. Tap a corner to enlarge it and check for whitening or softness.</div>
+  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. "Typical ask" is the median price of other current listings of the same card. Tap a corner to enlarge it.</div>
   <div class="list" id="list"></div>
+  <button class="btn more" id="more" hidden>Show more</button>
 </div>
 
 <dialog id="sync" class="panel" aria-labelledby="sync-h">
@@ -200,12 +215,8 @@ async function pullShortlist() {
     starred.clear(); remote.forEach(id => starred.add(id));
     sync.ok = true; syncLabel("Shortlist sync: on");
     if (localOnly.length) { localOnly.forEach(id => { starred.add(id); sync.items[id] = entry(id) }); await pushShortlist() }
-    store.set("cs-star", [...starred]); if (DATA) render();
+    store.set("cs-star", [...starred]); if (DATA) render(false);
   } catch (e) { sync.ok = false; syncLabel("Shortlist sync: error"); $("#sync-status").textContent = `Couldn't sync: ${e.message}. Check the token in step 6 of the README.` }
-}
-function entry(id) {
-  const l = DATA?.listings.find(x => x.id === id) || {};
-  return { title: l.title || id, url: l.url, auction: !!l.auction, ends: l.ends || null, price: l.price, added: new Date().toISOString() };
 }
 async function pushShortlist(retry = true) {
   const body = { message: "Update shortlist", content: btoa(unescape(encodeURIComponent(JSON.stringify(sync.items, null, 1)))) };
@@ -220,10 +231,13 @@ async function pushShortlist(retry = true) {
   syncLabel("Shortlist sync: error");
 }
 const dismissed = new Set(store.get("cs-hide", []));
-const seenBefore = new Set(store.get("cs-seen", []));
-const firstVisit = seenBefore.size === 0;
-const state = Object.assign({ player: "", year: "", set: "", type: "", sort: "center", psa: false, profit: false, read: false, star: false, hidden: false }, store.get("cs-filters", {}));
+const lastVisit = store.get("cs-lastvisit", null);
+const state = Object.assign({ player: "", year: "", set: "", type: "", sort: "center", psa: false, read: false,
+  star: false, hidden: false, min: "", max: "", x: "" }, store.get("cs-filters", {}));
 const FACETS = ["player", "year", "set"];
+const PAGE_N = 40;
+let shownN = PAGE_N, INDEX = null;
+const loaded = new Map();   // player name -> listings
 
 function money(v) { return "$" + v.toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) }
 function rel(iso) {
@@ -234,88 +248,132 @@ function rel(iso) {
 }
 function readable(l) { return (l.c?.confidence ?? 0) >= 0.35 }
 function splitPill(l) {
-  if (!readable(l)) return `<span class="pill warn">Centering unreadable</span>`;
+  if (!readable(l)) return l.c ? `<span class="pill warn">Centering unclear</span>` : `<span class="pill warn">Measuring soon</span>`;
   const w = l.c.worst;
   if (w <= 55.5) return `<span class="pill good">PSA 10 centering</span>`;
   if (w <= 60.5) return `<span class="pill warn">PSA 9 centering</span>`;
   return `<span class="pill bad">Off-center</span>`;
 }
 function splitText(v) { const a = Math.round(Math.max(v, 100 - v)); return `${a}/${100 - a}` }
+function itemUrl(id, u) { const m = /^v1\|(\d+)\|/.exec(id); return m ? `https://www.ebay.com/itm/${m[1]}` : u }
+function soldUrl(l) {
+  const set = l.set.replace(/^Panini /, "");
+  const par = l.parallel && l.parallel !== "base" ? l.parallel.replace(/\+/g, " ") : "";
+  const q = [l.year, set, l.player, l.card ? "#" + l.card : "", par, "PSA 10"].filter(Boolean).join(" ");
+  return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Sold=1&LH_Complete=1`;
+}
+// compact file format -> the shape the page uses
+function expand(r, player) {
+  return {
+    id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, shipping: r.s,
+    auction: !!r.a, ends: r.e, first: r.f, seller: r.sl, feedback: r.fb, player, year: r.y, set: r.st, gem: r.g,
+    card: r.k, parallel: r.pr, x: r.x,
+    c: r.c ? { lr: r.c.lr, tb: r.c.tb, worst: r.c.w, confidence: r.c.cf ?? 0, quad: r.c.q, note: r.c.note } : null,
+  };
+}
+async function loadPlayer(p) {
+  if (loaded.has(p.name)) return;
+  const rows = window.CARD_DATA ? window.CARD_DATA.players[p.name] : await fetch("data/" + p.file, { cache: "no-store" }).then(r => r.json());
+  loaded.set(p.name, rows.map(r => expand(r, p.name)));
+}
+async function ensureLoaded() {
+  const want = state.player ? INDEX.players.filter(p => p.name === state.player) : INDEX.players;
+  const todo = want.filter(p => !loaded.has(p.name));
+  if (!todo.length) return;
+  $("#list").innerHTML = `<div class="empty">Loading ${todo.reduce((a, p) => a + p.count, 0).toLocaleString()} listings…</div>`;
+  await Promise.all(todo.map(loadPlayer));
+}
+function listings() {
+  return state.player ? (loaded.get(state.player) || []) : [...loaded.values()].flat();
+}
 
-function render() {
+async function render(resetPaging = true) {
   store.set("cs-filters", state);
-  for (const k of ["psa", "profit", "read", "star", "hidden"]) $("#f-" + k).setAttribute("aria-pressed", state[k]);
-  fillFacets();
-  $("#f-type").value = state.type; $("#f-sort").value = state.sort;
+  if (resetPaging) shownN = PAGE_N;
+  for (const k of ["psa", "read", "star", "hidden"]) $("#f-" + k).setAttribute("aria-pressed", state[k]);
+  await ensureLoaded();
+  const all = listings();
+  fillFacets(all);
+  for (const k of ["type", "sort", "min", "max", "x"]) $("#f-" + k).value = state[k];
+  const min = parseFloat(state.min), max = parseFloat(state.max), xmax = parseFloat(state.x);
 
-  let items = DATA.listings.filter(l =>
-    FACETS.every(f => !state[f] || l[f] === state[f]) &&
+  const items = all.filter(l =>
+    FACETS.every(f => f === "player" || !state[f] || l[f] === state[f]) &&
     (!state.type || (state.type === "auction") === l.auction) &&
+    (isNaN(min) || l.price >= min) && (isNaN(max) || l.price <= max) &&
+    (isNaN(xmax) || l.x == null || l.x <= xmax) &&
     (!state.psa || (readable(l) && l.c.worst <= 55.5)) &&
     (!state.read || readable(l)) &&
-    (!state.profit || (l.est && l.est.profit > 0)) &&
     (!state.star || starred.has(l.id)) &&
     (state.hidden || !dismissed.has(l.id)));
   const by = {
-    center: (a, b) => (readable(b) - readable(a)) || ((a.c.worst ?? 99) - (b.c.worst ?? 99)) || a.price - b.price,
-    profit: (a, b) => (b.est ? b.est.profit : -1e9) - (a.est ? a.est.profit : -1e9),
+    center: (a, b) => (readable(b) - readable(a)) || ((a.c?.worst ?? 99) - (b.c?.worst ?? 99)) || a.price - b.price,
+    value: (a, b) => (a.x ?? 99) - (b.x ?? 99),
     price: (a, b) => (a.price + (a.shipping || 0)) - (b.price + (b.shipping || 0)),
-    new: (a, b) => (b.listed || "").localeCompare(a.listed || ""),
+    new: (a, b) => (b.first || "").localeCompare(a.first || ""),
     ending: (a, b) => (b.auction - a.auction) || (a.ends || "z").localeCompare(b.ends || "z"),
   }[state.sort];
   items.sort(by);
 
   const list = $("#list");
+  $("#count").textContent = `${items.length.toLocaleString()} match${items.length === 1 ? "" : "es"}`;
   if (!items.length) {
     list.innerHTML = `<div class="empty">No listings match these filters. Turn a filter off, or wait for the next scan.</div>`;
+    $("#more").hidden = true;
     return;
   }
-  list.innerHTML = items.map(l => {
-    const isNew = !firstVisit && !seenBefore.has(l.id);
-    const total = l.shipping ? `<span>+ ${money(l.shipping)} ship</span>` : (l.shipping === 0 ? `<span>Free shipping</span>` : "");
-    return `<article class="row${dismissed.has(l.id) ? " hidden-item" : ""}" data-id="${l.id}">
-      <a class="photo" href="${l.url}" target="_blank" rel="noopener"><img loading="lazy" src="${l.images[0] || ""}" alt="Front photo of ${l.title.replace(/"/g, "")}"></a>
-      <div class="info">
-        <a class="title" href="${l.url}" target="_blank" rel="noopener">${esc(l.title)}</a>
-        <div class="sub"><span class="price">${money(l.price)}</span>${total}<span>${l.auction ? "Auction · " + rel(l.ends) : "Buy It Now"}</span></div>
-        <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${splitPill(l)}${(l.flags || []).filter(f => f !== "centering unreadable").map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
-        ${profitLine(l)}
-        ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : `<div class="sub">${esc(l.c.note || "")}</div>`}
-        <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}${gem(l)}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
-        <div class="actions">
-          <a class="btn primary" href="${l.url}" target="_blank" rel="noopener">View on eBay</a>
-          <button class="btn" data-act="star" aria-pressed="${starred.has(l.id)}">${starred.has(l.id) ? "★ Shortlisted" : "☆ Shortlist"}</button>
-          <button class="btn" data-act="hide">${dismissed.has(l.id) ? "Restore" : "Dismiss"}</button>
-        </div>
-      </div>
-      <div class="loupes" data-img="${l.images[0] || ""}" data-quad='${JSON.stringify(l.c.quad || null)}'></div>
-    </article>`;
-  }).join("");
+  list.innerHTML = items.slice(0, shownN).map(row).join("");
+  const more = $("#more");
+  more.hidden = items.length <= shownN;
+  more.textContent = `Show more (${(items.length - shownN).toLocaleString()} left)`;
   list.querySelectorAll(".loupes").forEach(drawLoupes);
 }
-function gem(l) { const g = DATA.gem_rates?.[`${l.year} ${l.set}`]; return g != null ? ` · ${g}% gem rate` : "" }
-// each dropdown lists only values that exist given the other two choices
-function fillFacets() {
-  for (const f of FACETS) {
-    const others = FACETS.filter(o => o !== f);
-    const vals = [...new Set(DATA.listings.filter(l => others.every(o => !state[o] || l[o] === state[o])).map(l => l[f]).filter(Boolean))]
+function row(l) {
+  const isNew = lastVisit && l.first > lastVisit;
+  const ship = l.shipping ? `<span>+ ${money(l.shipping)} ship</span>` : (l.shipping === 0 ? `<span>Free shipping</span>` : "");
+  const minPhotos = INDEX.min_photos ?? 2;
+  const flags = [];
+  if (l.nImg < minPhotos) flags.push(`only ${l.nImg} photo${l.nImg === 1 ? "" : "s"}`);
+  const xPill = l.x == null ? "" : l.x >= 2 ? `<span class="pill bad">${l.x}× typical ask</span>`
+    : l.x <= 0.8 ? `<span class="pill good">${l.x}× typical ask</span>` : `<span class="pill">${l.x}× typical ask</span>`;
+  return `<article class="row${dismissed.has(l.id) ? " hidden-item" : ""}" data-id="${esc(l.id)}">
+    <a class="photo" href="${esc(l.url)}" target="_blank" rel="noopener"><img loading="lazy" src="${esc((l.images[0] || "").replace("s-l1600", "s-l500"))}" alt="Front photo of ${esc(l.title)}"></a>
+    <div class="info">
+      <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
+      <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Auction · " + rel(l.ends) : "Buy It Now"}</span></div>
+      <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
+      ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
+      <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}${l.gem != null ? ` · ${l.gem}% set gem rate` : ""}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
+      <div class="actions">
+        <a class="btn primary" href="${esc(l.url)}" target="_blank" rel="noopener">View on eBay</a>
+        <a class="btn" href="${esc(soldUrl(l))}" target="_blank" rel="noopener">PSA 10 sold comps</a>
+        <button class="btn" data-act="star" aria-pressed="${starred.has(l.id)}">${starred.has(l.id) ? "★ Shortlisted" : "☆ Shortlist"}</button>
+        <button class="btn" data-act="hide">${dismissed.has(l.id) ? "Restore" : "Dismiss"}</button>
+      </div>
+    </div>
+    <div class="loupes" data-img="${esc(l.images[0] || "")}" data-measured="${l.c ? 1 : 0}" data-quad='${JSON.stringify(l.c?.quad || null)}'></div>
+  </article>`;
+}
+// each dropdown lists only values that exist given the other choices
+function fillFacets(all) {
+  const sel = $("#f-player");
+  sel.innerHTML = `<option value="">All players</option>` + INDEX.players.map(p => `<option>${esc(p.name)}</option>`).join("");
+  sel.value = state.player;
+  for (const f of ["year", "set"]) {
+    const other = f === "year" ? "set" : "year";
+    const vals = [...new Set(all.filter(l => !state[other] || l[other] === state[other]).map(l => l[f]).filter(Boolean))]
       .sort((a, b) => f === "year" ? b.localeCompare(a) : a.localeCompare(b));
     if (state[f] && !vals.includes(state[f])) state[f] = "";
-    const label = { player: "All players", year: "All years", set: "All sets" }[f];
-    const sel = $("#f-" + f);
-    sel.innerHTML = `<option value="">${label}</option>` + vals.map(v => `<option>${esc(v)}</option>`).join("");
-    sel.value = state[f];
+    const s = $("#f-" + f);
+    s.innerHTML = `<option value="">${f === "year" ? "All years" : "All sets"}</option>` + vals.map(v => `<option>${esc(v)}</option>`).join("");
+    s.value = state[f];
   }
 }
-function profitLine(l) {
-  const e = l.est;
-  if (!e) return `<div class="sub">No PSA 10 comps found for this exact card</div>`;
-  const cls = e.profit > 0 ? "up" : "down";
-  const f = DATA.profit || {};
-  const tip = `PSA 10 value $${e.psa10.toLocaleString()} from ${e.comps} PSA 10 listing${e.comps > 1 ? "s" : ""}, minus ${f.sell_fee_pct ?? 13.25}% eBay fee, $${f.grading_fee ?? 25} grading, $${f.ship_to_grader ?? 5} shipping and your cost`;
-  return `<div class="profit ${cls}" title="${esc(tip)}"><span>PSA 10 ≈ ${money(e.psa10)}<small>${e.comps} comp${e.comps > 1 ? "s" : ""}</small></span><b>${e.profit >= 0 ? "+" : "−"}${money(Math.abs(Math.round(e.profit)))} est. profit</b></div>`;
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])) }
+function entry(id) {
+  const l = listings().find(x => x.id === id) || {};
+  return { title: l.title || id, url: l.url, auction: !!l.auction, ends: l.ends || null, price: l.price, added: new Date().toISOString() };
 }
-function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])) }
 
 const imgCache = new Map();
 function loadImg(src) {
@@ -335,7 +393,10 @@ function cornerBox(img, q, k) {
 }
 async function drawLoupes(box) {
   const src = box.dataset.img, q = JSON.parse(box.dataset.quad);
-  if (!src || !q) { box.innerHTML = `<div class="na">Card outline not found. Open the listing to check corners.</div>`; return }
+  if (!src || !q) {
+    box.innerHTML = `<div class="na">${box.dataset.measured === "1" ? "Card outline not found in this photo. Open the listing to check corners." : "Corner zooms appear once this photo is measured, usually within an hour."}</div>`;
+    return;
+  }
   const names = ["Top left", "Top right", "Bottom right", "Bottom left"];
   const order = [0, 1, 3, 2]; // grid reads TL, TR, BL, BR
   box.innerHTML = order.map(k => `<canvas width="168" height="168" data-k="${k}" aria-label="${names[k]} corner" role="img"></canvas>`).join("");
@@ -361,15 +422,17 @@ $("#list").addEventListener("click", e => {
   const set = b.dataset.act === "star" ? starred : dismissed;
   set.has(id) ? set.delete(id) : set.add(id);
   store.set("cs-star", [...starred]); store.set("cs-hide", [...dismissed]);
-  render();
   if (b.dataset.act === "star" && sync.ok) {
     starred.has(id) ? (sync.items[id] = entry(id)) : delete sync.items[id];
     pushShortlist();
   }
+  render(false);
 });
-for (const k of ["psa", "profit", "read", "star", "hidden"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
-for (const k of [...FACETS, "type"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
-$("#f-sort").onchange = e => { state.sort = e.target.value; render() };
+$("#more").onclick = () => { shownN += PAGE_N; render(false) };
+for (const k of ["psa", "read", "star", "hidden"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
+for (const k of [...FACETS, "type", "sort", "x"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
+let priceTimer;
+for (const k of ["min", "max"]) $("#f-" + k).oninput = e => { state[k] = e.target.value; clearTimeout(priceTimer); priceTimer = setTimeout(render, 350) };
 
 $("#open-sync").onclick = () => {
   $("#sync-token").value = sync.token;
@@ -382,18 +445,28 @@ $("#sync-form").addEventListener("submit", e => {
   if (v === "off") { sync.token = ""; sync.ok = false; store.set("cs-token", ""); syncLabel("Shortlist sync: off") }
 });
 
-function boot(d) {
-  DATA = d;
-  const up = new Date(d.updated);
+function boot(idx) {
+  INDEX = idx; DATA = true;
+  const st = idx.stats || {};
+  const up = new Date(idx.updated);
   $("#updated").textContent = `Last scan ${up.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
-  const good = d.listings.filter(l => readable(l) && l.c.worst <= 55.5).length;
-  const dropped = Object.values(d.dropped || {}).reduce((a, b) => a + b, 0);
-  $("#stats").innerHTML = `<span><b>${d.listings.length}</b> listings</span><span><b>${good}</b> with PSA 10 centering</span><span><b>${d.listings.filter(l => l.est && l.est.profit > 0).length}</b> with est. profit</span><span><b>${dropped}</b> consigner / dealer listings removed</span><span><b>${starred.size}</b> shortlisted</span>`;
+  const sweep = st.units_done < st.units ? `First full eBay sweep: ${st.units_done} of ${st.units} player-years`
+    : `Full eBay sweep every ~${Math.max(1, Math.ceil(st.sweep_days * 24))}h`;
+  $("#stats").innerHTML = [
+    `<span><b>${(st.shown ?? 0).toLocaleString()}</b> listings</span>`,
+    `<span id="count"></span>`,
+    st.active - st.measured > 0 ? `<span><b>${(st.active - st.measured).toLocaleString()}</b> photos still being measured</span>` : "",
+    `<span><b>${Object.values(st.dropped || {}).reduce((a, b) => a + b, 0).toLocaleString()}</b> off-center or dealer listings removed</span>`,
+    `<span>${sweep}</span>`,
+  ].join("");
+  // With a very large inventory, open on one player instead of loading everyone
+  if (!store.get("cs-filters", null) && (st.shown ?? 0) > 25000 && idx.players.length) state.player = idx.players[0].name;
+  if (state.player && !idx.players.some(p => p.name === state.player)) state.player = "";
   render();
   pullShortlist();
-  store.set("cs-seen", [...new Set([...seenBefore, ...d.listings.map(l => l.id)])].slice(-5000));
+  store.set("cs-lastvisit", idx.updated);
 }
-if (window.CARD_DATA) boot(window.CARD_DATA);
-else fetch("data.json", { cache: "no-store" }).then(r => r.json()).then(boot)
+if (window.CARD_DATA) boot(window.CARD_DATA.index);
+else fetch("data/index.json", { cache: "no-store" }).then(r => r.json()).then(boot)
   .catch(() => { $("#updated").textContent = ""; $("#list").innerHTML = `<div class="empty">No scan results yet. The first scan runs within a few minutes of setup; refresh after it finishes.</div>` });
 </script>

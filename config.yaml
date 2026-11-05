@@ -52,18 +52,7 @@ defaults:
   max_price: 1000
   buying_options: [FIXED_PRICE, AUCTION]
   ship_to_country: US
-  max_results_per_search: 400 # results per search (200 per eBay call)
   daily_call_limit: 5000      # raise this if eBay approves a higher limit
-
-# ── Profit estimate ───────────────────────────────────────────
-# PSA 10 value = current eBay PSA 10 Buy It Now prices for the same card
-# (lower quartile, since asks run above sales). Refreshed once a day.
-profit:
-  enabled: true
-  grading_fee: 39.99          # PSA Value tier per card; change to the tier you use
-  ship_to_grader: 5           # your per-card share of shipping/insurance to PSA and back
-  sell_fee_pct: 13.25         # eBay final value fee when you sell the slab
-  refresh_hours: 24
 
 # ── Alerts ────────────────────────────────────────────────────
 # Alerts arrive as GitHub issues: GitHub emails you, and the GitHub app
@@ -74,8 +63,7 @@ profit:
 alerts:
   enabled: true
   psa10_centering_only: true  # must measure 55/45 or better
-  min_profit: 50              # est. profit at least this ($); cards without comps still alert
-  require_profit_estimate: false  # true = skip cards with no PSA 10 comps
+  max_times_typical_ask: 2    # skip cards priced over 2x the typical ask for the same card (blank = off)
   max_price: 500
   buy_it_now_only: true       # new auctions don't alert; shortlist them for a reminder instead
   auction_reminder_minutes: 75  # remind when a shortlisted auction has this long left (arrives ~45-75 min before)
@@ -85,7 +73,7 @@ consigners:
   blocked_sellers: []         # eBay usernames to always exclude
   blocked_title_words: [consign, consignment, vault, pwcc, goldin, "fanatics collect", repack, mystery]
   max_seller_feedback: 25000  # above this = treated as a dealer/consigner. 0 = off
-  max_listings_per_seller: 15 # one seller above this many listings = dealer. 0 = off
+  max_listings_per_seller: 40 # one seller with more than this many of your players' listings = dealer. 0 = off
 
 # ── Photo quality rules ───────────────────────────────────────
 photos:
@@ -96,3 +84,4 @@ photos:
   psa10_max_split: 55
   tolerance: 1.5              # allowance for measurement error on good photos
   min_confidence_to_drop: 0.6
+  measure_minutes: 25         # time per hourly run spent measuring new photos
