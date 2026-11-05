@@ -90,4 +90,9 @@ consigners:
 # ── Photo quality rules ───────────────────────────────────────
 photos:
   min_photos: 2
-  hide_low_confidence: false
+  hide_low_confidence: false  # true = also hide cards whose centering couldn't be measured
+  # A card is removed only when its photo is clear (confidence >= min_confidence_to_drop)
+  # and its worse side is beyond psa10_max_split + tolerance (55 + 1.5 = worse than 56.5/43.5).
+  psa10_max_split: 55
+  tolerance: 1.5              # allowance for measurement error on good photos
+  min_confidence_to_drop: 0.6

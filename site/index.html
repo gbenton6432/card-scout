@@ -143,7 +143,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     </select>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
     <button class="chip" id="f-profit" aria-pressed="false">Profitable</button>
-    <button class="chip" id="f-read" aria-pressed="true">Hide unreadable</button>
+    <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
     <button class="chip" id="f-star" aria-pressed="false">★ Shortlist</button>
     <button class="chip" id="f-hidden" aria-pressed="false">Show dismissed</button>
     <button class="chip" id="open-sync">Shortlist sync: off</button>
@@ -222,7 +222,7 @@ async function pushShortlist(retry = true) {
 const dismissed = new Set(store.get("cs-hide", []));
 const seenBefore = new Set(store.get("cs-seen", []));
 const firstVisit = seenBefore.size === 0;
-const state = Object.assign({ player: "", year: "", set: "", type: "", sort: "center", psa: false, profit: false, read: true, star: false, hidden: false }, store.get("cs-filters", {}));
+const state = Object.assign({ player: "", year: "", set: "", type: "", sort: "center", psa: false, profit: false, read: false, star: false, hidden: false }, store.get("cs-filters", {}));
 const FACETS = ["player", "year", "set"];
 
 function money(v) { return "$" + v.toLocaleString(undefined, { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }) }

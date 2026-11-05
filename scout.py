@@ -333,6 +333,14 @@ def main():
         if l["c"].get("confidence", 0) < 0.35:
             flags.append("centering unreadable")
         l["flags"] = flags
+    # Drop only cards whose photo is clear enough to trust AND shows centering worse than
+    # the PSA 10 bar. Unclear photos stay on the dashboard for you to judge.
+    bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
+    sure = float(photos.get("min_confidence_to_drop", 0.6))
+    before = len(listings)
+    listings = [l for l in listings
+                if not (l["c"].get("confidence", 0) >= sure and l["c"].get("worst", 0) > bar)]
+    print(f"{before - len(listings)} listings dropped: clear photo, centering worse than PSA 10")
     if photos.get("hide_low_confidence"):
         listings = [l for l in listings if l["c"].get("confidence", 0) >= 0.35]
 
