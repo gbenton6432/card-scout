@@ -26,53 +26,65 @@ def _photo(l, r, t, b, angle, persp, path, border=(235, 238, 240), bg=(70, 95, 1
     cv2.imwrite(path, canvas, [cv2.IMWRITE_JPEG_QUALITY, 82])
 
 
+# (borders l,r,t,b), angle, perspective, price, seller, feedback, auction, title, player, year, set, gem rate, PSA 10 asks
+SPECS = [
+    ((30, 30, 31, 29), 1, 0, 64, "cardguy_tx", 412, False, "2018 Topps Chrome Update Shohei Ohtani #HMT32 Rookie RC",
+     "Shohei Ohtani", 2018, "Topps Chrome Update", 81.7, [215, 230, 240, 260, 275]),
+    ((33, 27, 30, 30), -3, 15, 38, "dad_collects", 96, True, "2018 Topps Heritage Shohei Ohtani #312 RC",
+     "Shohei Ohtani", 2018, "Topps Heritage", 61.5, [120, 135, 150]),
+    ((31, 29, 32, 28), 2, 0, 48, "hoops_attic", 1220, False, "2017 Topps Chrome Update Aaron Judge #HMT1 Rookie",
+     "Aaron Judge", 2017, "Topps Chrome Update", 78.5, [190, 210, 225, 240]),
+    ((30, 30, 40, 20), 0, 0, 72, "midwest_breaks", 3801, False, "2017 Panini Select Patrick Mahomes II #6 Rookie",
+     "Patrick Mahomes", 2017, "Panini Select", 53.4, [260, 280, 300]),
+    ((29, 31, 32, 28), 5, 20, 22, "sharpcorners22", 58, False, "2018 Donruss Optic Josh Allen #153 Rated Rookie",
+     "Josh Allen", 2018, "Panini Donruss Optic", 51, [95, 110, 120, 140]),
+    ((32, 28, 29, 31), -2, 0, 17, "binder_finds", 211, True, "2020-21 Panini Mosaic Stephen Curry #1",
+     "Stephen Curry", 2020, "Panini Mosaic", 60.2, [55, 60, 70]),
+    ((30, 30, 30, 30), 0, 0, 85, "estate_cards_oh", 77, False, "2012-13 Panini Past & Present LeBron James #1",
+     "LeBron James", 2012, "Panini Past & Present", 71.8, []),
+    ((28, 32, 33, 27), 3, 0, 29, "tcg_kid_mo", 33, False, "2024 Topps Now Caleb Williams #NFLD-1 Draft Night",
+     "Caleb Williams", 2024, "Topps Now", 84.6, [60, 65, 72]),
+    ((34, 26, 30, 30), -4, 10, 140, "futbol_finds", 640, True, "2017-18 Topps Chrome UEFA Champions League Kylian Mbappe #23 RC",
+     "Kylian Mbappe", 2017, "Topps Chrome UEFA Champions League", 60, [520, 560, 600]),
+    ((30, 30, 31, 29), 1, 0, 26, "nwsl_cards", 145, False, "2023 Topps Finest MLS Trinity Rodman #75",
+     "Trinity Rodman", 2023, "Topps Finest MLS", 71.8, []),
+    ((31, 29, 30, 30), 0, 0, 34, "bigvaultco", 184000, False, "2024 Topps Now MLS Cavan Sullivan #1 Debut",
+     "Cavan Sullivan", 2024, "Topps Now MLS", 68.7, [110, 125]),
+    ((30, 30, 30, 30), 0, 0, 55, "someseller", 900, False, "2018 Topps Chrome Update Ohtani HMT1 - CONSIGNMENT",
+     "Shohei Ohtani", 2018, "Topps Chrome Update", 81.7, []),
+]
+
+
 def demo_items():
+    from datetime import datetime, timezone, timedelta
     out = os.path.join(HERE, "site", "demo"); os.makedirs(out, exist_ok=True)
-    specs = [  # borders l,r,t,b, angle, persp, price, seller, feedback, title
-        ((30, 30, 31, 29), 1, 0, 89, "cardguy_tx", 412, "2018 Prizm Luka Doncic RC #280 Base Rookie"),
-        ((33, 27, 30, 30), -3, 15, 74, "dad_collects", 96, "Luka Doncic 2019-20 Panini Prizm Base"),
-        ((38, 22, 30, 30), 2, 0, 55, "hoops_attic", 1220, "2018 Prizm Luka Doncic #280 rookie"),
-        ((30, 30, 40, 20), 0, 0, 61, "midwest_breaks", 3801, "Luka Doncic 2019 Prizm Base"),
-        ((29, 31, 32, 28), 6, 20, 120, "sharpcorners22", 58, "2018-19 Prizm Luka Doncic RC Sharp!"),
-        ((31, 29, 29, 31), -2, 0, 99, "bigvaultco", 184000, "Luka Doncic 2018 Prizm RC"),
-        ((30, 30, 30, 30), 0, 0, 105, "someseller", 900, "Luka Doncic Prizm RC - CONSIGNMENT"),
-        ((32, 28, 34, 26), 4, 10, 210, "pokepal", 640, "Pokemon 151 Charizard ex 199/165 SIR"),
-        ((35, 25, 30, 30), -5, 0, 165, "binder_finds", 211, "Charizard ex Obsidian Flames 223/197 Special Illustration"),
-        ((30, 30, 30, 30), 0, 0, 240, "estate_cards_oh", 77, "Pokemon 151 Charizard ex #006 Double Rare NM"),
-        ((26, 34, 36, 24), 3, 0, 145, "tcg_kid_mo", 33, "Obsidian Flames Charizard ex 125/197 Holo"),
-    ]
+    now = datetime.now(timezone.utc)
     items = []
-    for i, (bd, ang, p, price, seller, fb, title) in enumerate(specs):
+    for i, (bd, ang, p, price, seller, fb, auction, title, player, year, set_name, gem, _) in enumerate(SPECS):
         name = f"card{i}.jpg"
         _photo(*bd, ang, p, os.path.join(out, name))
-        imgs = [] if i == 3 else [{"imageUrl": f"demo/{name}"}]
+        imgs = [] if i == 7 else [{"imageUrl": f"demo/{name}"}]
         items.append(({
             "itemId": f"v1|demo{i}|0", "title": title,
-            "itemWebUrl": "https://www.ebay.com/sch/i.html?_nkw=" + title.replace(" ", "+"),
+            "itemWebUrl": "https://www.ebay.com/sch/i.html?_nkw=" + title.replace(" ", "+").replace("#", ""),
             "image": {"imageUrl": f"demo/{name}"}, "additionalImages": imgs,
             "price": {"value": str(price), "currency": "USD"},
             "shippingOptions": [{"shippingCost": {"value": "4.99" if i % 3 else "0.00"}}],
-            "buyingOptions": ["AUCTION"] if i in (2, 8) else ["FIXED_PRICE"],
-            "itemEndDate": "2026-11-09T02:00:00.000Z" if i in (2, 8) else None,
+            "buyingOptions": ["AUCTION"] if auction else ["FIXED_PRICE"],
+            "itemEndDate": (now + timedelta(hours=3 + 20 * i)).isoformat() if auction else None,
+            "itemCreationDate": (now - timedelta(hours=i)).isoformat(),
             "seller": {"username": seller, "feedbackScore": fb, "feedbackPercentage": "99.8"},
             "condition": "Ungraded",
-        }, ({"player": "Charizard", "year": "", "category": "tcg", "sets": [
-                {"year": 2023, "set": "Pokemon 151", "gem_rate": 55},
-                {"year": 2023, "set": "Obsidian Flames", "gem_rate": 48}]} if i >= 7
-            else {"player": "Luka Doncic", "year": "2018" if "2018" in title else "2019",
-                  "sets": [{"year": 2018 if "2018" in title else 2019, "set": "Prizm",
-                            "gem_rate": 41 if "2018" in title else 44, "exclude": ["draft picks"]}]})))
+        }, {"player": player, "year": str(year), "category": "sports",
+            "sets": [{"year": year, "set": set_name, "gem_rate": gem}]}))
     return items
 
 
 def demo_comps():
-    """Fake PSA 10 asking prices for the demo cards."""
+    """PSA 10 asking prices for the demo cards."""
     import profit
     c = {"groups": {"demo": {"at": "2099-01-01T00:00:00+00:00", "prices": {}}}}
-    rows = [("luka doncic", "2018", "prizm", "280", "base", [395, 420, 450, 480, 520]),
-            ("charizard", "2023", "pokemon 151", "6", "base", [140, 155, 160, 175]),
-            ("charizard", "2023", "obsidian flames", "223", "base", [610, 640, 700]),
-            ("charizard", "2023", "obsidian flames", "125", "base", [95, 110])]
-    for *k, prices in rows:
-        c["groups"]["demo"]["prices"]["|".join(k)] = prices
+    for *_, title, player, year, set_name, gem, asks in SPECS:
+        if asks:
+            c["groups"]["demo"]["prices"]["|".join(profit.card_key(title, player, year, set_name))] = asks
     return c
