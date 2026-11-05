@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────
+#  Card Scout settings — the only file you need to edit.
+#  The scanner pairs every player with every qualifying set
+#  from their years and searches eBay for each pair.
+# ─────────────────────────────────────────────────────────────
+
+# Sets at or above this PSA 10 gem rate are searched; lower ones are skipped.
+gem_rate_min: 40
+
+# ── Players / characters ──────────────────────────────────────
+# sport must match the sport on the sets below (baseball, basketball,
+# football, soccer, hockey, pokemon...). years: "2018-" = 2018 to today.
+# min_price / max_price are optional per-player overrides.
+players:
+  - {name: Shohei Ohtani,     sport: baseball,   years: 2018-}
+  - {name: Aaron Judge,       sport: baseball,   years: 2013-}
+  - {name: LeBron James,      sport: basketball, years: 2003-}
+  - {name: Stephen Curry,     sport: basketball, years: 2009-}
+  - {name: Patrick Mahomes,   sport: football,   years: 2017-}
+  - {name: Josh Allen,        sport: football,   years: 2018-}
+  - {name: Caleb Williams,    sport: football,   years: 2021-}
+  - {name: Trinity Rodman,    sport: soccer,     years: 2021-}
+  - {name: Linda Caicedo,     sport: soccer,     years: 2022-}
+  - {name: Cavan Sullivan,    sport: soccer,     years: 2023-}
+  - {name: Kylian Mbappe,     sport: soccer,     years: 2016-}
+
+# ── Sets from GemRate ─────────────────────────────────────────
+# One line per set with its overall PSA 10 gem rate (%) from gemrate.com.
+#   year:  as sellers write it, e.g. 2023 (2023-24 sets go in as 2023)
+#   set:   the words sellers put in titles, e.g. Prizm, Topps Chrome Update
+#   exclude (optional): words that mean a different product,
+#          e.g. Prizm → [draft picks] so Prizm Draft Picks isn't counted
+# Format:
+#   - {year: 2018, set: Topps Chrome Update, sport: baseball, gem_rate: 48}
+sets: []   # to be filled from GemRate
+
+# Optional: one-off searches that don't fit the player × set pattern.
+# The one below is a setup test so your first scan shows real cards before
+# gem rates are filled in. Delete it whenever you like.
+extra_searches:
+  - name: Setup test
+    player: Shohei Ohtani
+    year: 2018
+    set: Topps Chrome Update
+    query: "2018 topps chrome update shohei ohtani -psa -bgs -sgc -cgc -lot"
+    category: sports
+
+# ── Applies to every search ──────────────────────────────────
+defaults:
+  raw_only: true              # ungraded cards only (no slabs)
+  exclude_words: [psa, bgs, sgc, cgc, beckett, graded, lot, reprint, custom, proxy]
+  min_price: 10
+  max_price: 1000
+  buying_options: [FIXED_PRICE, AUCTION]
+  ship_to_country: US
+  max_results_per_search: 400 # results per search (200 per eBay call)
+  daily_call_limit: 5000      # raise this if eBay approves a higher limit
+
+# ── Profit estimate ───────────────────────────────────────────
+# PSA 10 value = current eBay PSA 10 Buy It Now prices for the same card
+# (lower quartile, since asks run above sales). Refreshed once a day.
+profit:
+  enabled: true
+  grading_fee: 39.99          # PSA Value tier per card; change to the tier you use
+  ship_to_grader: 5           # your per-card share of shipping/insurance to PSA and back
+  sell_fee_pct: 13.25         # eBay final value fee when you sell the slab
+  refresh_hours: 24
+
+# ── Alerts ────────────────────────────────────────────────────
+# Alerts arrive as GitHub issues: GitHub emails you, and the GitHub app
+# sends a phone notification.
+#  1. New Buy It Now listings that pass the rules below.
+#  2. A reminder before any auction on your shortlist ends
+#     (needs shortlist sync turned on in the dashboard — see README).
+alerts:
+  enabled: true
+  psa10_centering_only: true  # must measure 55/45 or better
+  min_profit: 50              # est. profit at least this ($); cards without comps still alert
+  require_profit_estimate: false  # true = skip cards with no PSA 10 comps
+  max_price: 500
+  buy_it_now_only: true       # new auctions don't alert; shortlist them for a reminder instead
+  auction_reminder_minutes: 75  # remind when a shortlisted auction has this long left (arrives ~45-75 min before)
+
+# ── Consigner / big-dealer filtering ──────────────────────────
+consigners:
+  blocked_sellers: []         # eBay usernames to always exclude
+  blocked_title_words: [consign, consignment, vault, pwcc, goldin, "fanatics collect", repack, mystery]
+  max_seller_feedback: 25000  # above this = treated as a dealer/consigner. 0 = off
+  max_listings_per_seller: 15 # one seller above this many listings = dealer. 0 = off
+
+# ── Photo quality rules ───────────────────────────────────────
+photos:
+  min_photos: 2
+  hide_low_confidence: false

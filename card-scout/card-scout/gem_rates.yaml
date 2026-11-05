@@ -1,0 +1,6 @@
+# Set-level PSA 10 gem rates. This file is kept up to date for you:
+# don't edit it by hand unless you want to. The scanner searches every set
+# here at or above gem_rate_min (config.yaml) for each player's sport and years.
+#   - {year: 2018, set: Topps Chrome Update, sport: baseball, gem_rate: 48.2}
+updated: null
+sets: []
