@@ -81,6 +81,8 @@ class Matcher:
 
     def __init__(self, cfg):
         self.cutoff = float(cfg.get("gem_rate_min", 0) or 0)
+        # Per-sport overrides, e.g. {disney: 0} to keep every Topps Chrome Disney set
+        by_sport = {str(k).lower(): float(v or 0) for k, v in (cfg.get("gem_rate_min_by_sport") or {}).items()}
         self.sets = defaultdict(list)  # (sport, year) -> [set]
         merged = {}
         # Sets listed in config.yaml without a rate count until GemRate's rate arrives
@@ -90,8 +92,9 @@ class Matcher:
                 merged[key] = st
         for (sport, year, _), st in merged.items():
             rate = st.get("gem_rate")
+            cut = by_sport.get(sport, self.cutoff)
             st = dict(st, _aliases=_aliases(st["set"]),
-                      _ok=rate is None or float(rate) >= self.cutoff)
+                      _ok=rate is None or cut <= 0 or float(rate) >= cut)
             self.sets[(sport, year)].append(st)
 
     @staticmethod

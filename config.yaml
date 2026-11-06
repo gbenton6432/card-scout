@@ -6,6 +6,9 @@
 
 # Sets at or above this PSA 10 gem rate are searched; lower ones are skipped.
 gem_rate_min: 50
+# Different cutoff for a sport (0 = no cutoff). Disney: every Topps Chrome Disney set counts.
+gem_rate_min_by_sport:
+  disney: 0
 
 # ── Players / characters ──────────────────────────────────────
 # sport must match the sport on the sets below (baseball, basketball,
