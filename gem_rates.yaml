@@ -7819,3 +7819,22 @@ sets:
   - {sport: soccer, year: 2026, set: "Panini Prizm FIFA World Cup 2026 National Landmarks", gem_rate: 51.1, graded: 1118}
   - {sport: soccer, year: 2026, set: "Topps Now MLS", gem_rate: 68.4, graded: 916}
   - {sport: soccer, year: 2026, set: "Panini FIFA World Cup 2026 Stickers", gem_rate: 47.2, graded: 776}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100", gem_rate: 47.4, graded: 38552}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100 Dual Autographs", gem_rate: 58.6, graded: 1031}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100 Iconic Moments", gem_rate: 60.4, graded: 1951}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100 Off the Page", gem_rate: 71.6, graded: 1079}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100 Once Upon A Time", gem_rate: 60.5, graded: 635}
+  - {sport: disney, year: 2023, set: "Topps Chrome DISNEY100 Stitch in Costume", gem_rate: 52.7, graded: 941}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney", gem_rate: 55.5, graded: 25019}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney Disney Chrome 2024 Facsimile Autographs", gem_rate: 26, graded: 549}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney Donald Duck 90th Anniversary", gem_rate: 57, graded: 607}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney Lion King 30th Anniversary", gem_rate: 44.9, graded: 597}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney Sapphire Edition", gem_rate: 59.6, graded: 11967}
+  - {sport: disney, year: 2024, set: "Topps Chrome Disney Sapphire Edition Sapphire Selections", gem_rate: 64.1, graded: 326}
+  - {sport: disney, year: 2025, set: "Topps Chrome Disney", gem_rate: 35.9, graded: 18878}
+  - {sport: disney, year: 2025, set: "Topps Chrome Disney Disney Chrome 2025 Authentic Autographs", gem_rate: 27.6, graded: 1050}
+  - {sport: disney, year: 2025, set: "Topps Chrome Disney Disney Icons", gem_rate: 47.3, graded: 704}
+  - {sport: disney, year: 2025, set: "Topps Chrome Disney Mickey & Friends MLB Home Jersey", gem_rate: 29.2, graded: 578}
+  - {sport: disney, year: 2025, set: "Topps Chrome Disney Sapphire Edition", gem_rate: 44.8, graded: 6634}
+  - {sport: disney, year: 2026, set: "Topps Chrome Disney", gem_rate: 37.7, graded: 578}
+  - {sport: disney, year: 2026, set: "Topps Chrome Disney Sapphire Edition", gem_rate: 45.1, graded: 441}

@@ -47,6 +47,10 @@ def _aliases(name):
     out = {n}
     if n.startswith("panini "):
         out.add(n[7:])
+    if "disney100" in n:  # GemRate writes DISNEY100; sellers write "Disney 100"
+        out.add(n.replace("disney100", "disney 100"))
+    if " sapphire edition" in n:  # sellers often drop "Edition"
+        out |= {x.replace(" sapphire edition", " sapphire") for x in list(out)}
     for full, short in (("donruss optic", "optic"), ("topps chrome update", "chrome update")):
         for x in list(out):
             if x.startswith(full):
