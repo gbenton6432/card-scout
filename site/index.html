@@ -312,7 +312,7 @@ function soldUrl(l) {
 // compact file format -> the shape the page uses
 function expand(r, player) {
   return {
-    id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, shipping: r.s,
+    id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, bin: r.b, shipping: r.s,
     auction: !!r.a, ends: r.e, first: r.f, seller: r.sl, feedback: r.fb, player, year: r.y, set: r.st, gem: r.g,
     card: r.k, parallel: r.pr, x: r.x, listed: r.l || r.f, offers: !!r.o,
     sn: r.c?.sn ? { num: r.c.sn[0], den: r.c.sn[1], conf: r.c.sn[2] } : null,
@@ -405,7 +405,7 @@ function row(l) {
     <a class="photo" href="${esc(l.url)}" target="_blank" rel="noopener"><img loading="lazy" src="${esc((l.images[0] || "").replace("s-l1600", "s-l500"))}" alt="Front photo of ${esc(l.title)}"></a>
     <div class="info">
       <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
-      <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Auction · " + rel(l.ends) : "Buy It Now"}</span>${l.offers ? "<span>Accepts offers</span>" : ""}<span>Listed ${ago(l.listed)}</span></div>
+      <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Current bid · " + rel(l.ends) : "Buy It Now"}</span>${l.bin ? `<span>or Buy It Now ${money(l.bin)}</span>` : ""}${l.offers ? "<span>Accepts offers</span>" : ""}<span>Listed ${ago(l.listed)}</span></div>
       <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${serialPill(l)}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
       ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
       ${breakEven(l)}

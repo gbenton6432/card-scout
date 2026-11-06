@@ -178,7 +178,13 @@ def to_listing(it, player, year, st):
     imgs += [big_image(a.get("imageUrl")) for a in it.get("additionalImages", [])]
     imgs = [u for u in imgs if u]
     seller = it.get("seller") or {}
-    price = it.get("price") or it.get("currentBidPrice") or {}
+    opts = it.get("buyingOptions") or []
+    # Auctions are priced at the current bid; a Buy It Now option on an auction is kept separately
+    if "AUCTION" in opts:
+        price = it.get("currentBidPrice") or it.get("price") or {}
+        bin_price = (it.get("price") or {}).get("value") if "FIXED_PRICE" in opts and it.get("currentBidPrice") else None
+    else:
+        price, bin_price = it.get("price") or {}, None
     ship = (it.get("shippingOptions") or [{}])[0].get("shippingCost")
     number, parallel = card_key(it.get("title", ""), player["name"], st["set"], player["category"] == "tcg")
     return {
@@ -186,6 +192,7 @@ def to_listing(it, player, year, st):
         "set_name": st["set"], "gem": st.get("gem_rate"), "title": it.get("title", ""),
         "url": it.get("itemWebUrl"), "img": imgs[0] if imgs else "", "n_img": len(imgs),
         "price": float(price.get("value", 0) or 0),
+        "bin": float(bin_price) if bin_price else None,
         "ship": float(ship.get("value", 0) or 0) if ship else None,
         "auction": int("AUCTION" in (it.get("buyingOptions") or [])),
         "offers": int("BEST_OFFER" in (it.get("buyingOptions") or [])),
@@ -418,7 +425,7 @@ def publish(store, cfg, scanner, run_stats):
     # Typical asking price for the same card (same player, year, set, number, parallel)
     groups = defaultdict(list)
     for r in rows:
-        if r["card"]:
+        if r["card"] and not r["auction"]:  # typical ask = Buy It Now asks only, not current bids
             groups[(r["player"], r["year"], r["set_name"], r["card"], r["parallel"])].append(r["price"] + (r["ship"] or 0))
     typical = {k: statistics.median(v) for k, v in groups.items() if len(v) >= 3}
 
@@ -431,7 +438,7 @@ def publish(store, cfg, scanner, run_stats):
         cr = card_rate(cidx, r)
         by_player[r["player"]].append({
             "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
-            "p": r["price"], "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"], "o": r["offers"],
+            "p": r["price"], "b": r.get("bin"), "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"], "o": r["offers"],
             "f": r["first_seen"], "sl": r["seller"], "fb": r["feedback"], "y": r["year"],
             "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
             "x": round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None,
