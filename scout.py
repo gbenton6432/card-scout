@@ -156,9 +156,20 @@ def consigner_reason(it, cons):
         return "blocked seller"
     if any(w.lower() in title for w in cons.get("blocked_title_words") or []):
         return "title keyword"
+    return seller_reason(int(seller.get("feedbackScore") or 0), seller.get("feedbackPercentage"), cons)
+
+
+def seller_reason(score, pct, cons):
+    """Seller checks: low positive rating, or too little feedback (eBay doesn't share account age,
+    so a very low feedback score stands in for 'new seller')."""
     max_fb = int(cons.get("max_seller_feedback") or 0)
-    if max_fb and int(seller.get("feedbackScore") or 0) > max_fb:
+    if max_fb and score > max_fb:
         return "high-volume seller (feedback)"
+    min_pct = float(cons.get("min_positive_pct") or 0)
+    if min_pct and pct not in (None, "") and float(pct) < min_pct:
+        return "seller rating below minimum"
+    if score < int(cons.get("min_seller_feedback") or 0):
+        return "new or unproven seller"
     return None
 
 
@@ -180,6 +191,7 @@ def to_listing(it, player, year, st):
         "offers": int("BEST_OFFER" in (it.get("buyingOptions") or [])),
         "ends": it.get("itemEndDate"), "listed": it.get("itemCreationDate"),
         "seller": seller.get("username", ""), "feedback": int(seller.get("feedbackScore") or 0),
+        "fb_pct": float(seller["feedbackPercentage"]) if seller.get("feedbackPercentage") not in (None, "") else None,
         "card": number, "parallel": parallel,
     }
 
@@ -392,7 +404,11 @@ def publish(store, cfg, scanner, run_stats):
     per_seller = Counter(r["seller"] for r in rows)
     shown, dropped = [], Counter()
     for r in rows:
-        if max_per and per_seller[r["seller"]] > max_per:
+        reason = seller_reason(r["feedback"] or 0, r.get("fb_pct"), cons) or (
+            "blocked seller" if (r["seller"] or "").lower() in {x.lower() for x in cons.get("blocked_sellers") or []} else None)
+        if reason:
+            dropped[reason] += 1
+        elif max_per and per_seller[r["seller"]] > max_per:
             dropped["high-volume seller (listing count)"] += 1
         elif r["c"] and off_center(r["c"], photos):
             dropped["clear photo, worse than PSA 10 centering"] += 1

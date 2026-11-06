@@ -105,10 +105,16 @@ alerts:
 
 # ── Consigner / big-dealer filtering ──────────────────────────
 consigners:
-  blocked_sellers: []         # eBay usernames to always exclude
+  # Consignment businesses (they sell other people's cards). Add any you spot;
+  # each dashboard card shows the seller's username.
+  blocked_sellers: [just_collect, probstein123, dcsports87, comc_consignment, 4sharpcorners, 4_sharp_corners, pwccmarketplace]
   blocked_title_words: [consign, consignment, vault, pwcc, goldin, "fanatics collect", repack, mystery]
-  max_seller_feedback: 25000  # above this = treated as a dealer/consigner. 0 = off
-  max_listings_per_seller: 40 # one seller with more than this many of your players' listings = dealer. 0 = off
+  max_seller_feedback: 0      # 0 = big dealers are kept; only consigners above are removed
+  max_listings_per_seller: 0  # 0 = off
+  min_positive_pct: 80        # drop sellers under 80% positive feedback
+  # eBay doesn't share how old an account is, so very low feedback stands in for
+  # "new seller": under this many feedback ratings = dropped.
+  min_seller_feedback: 10
 
 # ── Photo quality rules ───────────────────────────────────────
 photos:

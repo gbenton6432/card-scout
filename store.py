@@ -6,7 +6,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
   id TEXT PRIMARY KEY, player TEXT, sport TEXT, year TEXT, set_name TEXT, gem REAL,
   title TEXT, url TEXT, img TEXT, n_img INTEGER, price REAL, ship REAL, auction INTEGER,
-  ends TEXT, listed TEXT, seller TEXT, feedback INTEGER, card TEXT, parallel TEXT, offers INTEGER,
+  ends TEXT, listed TEXT, seller TEXT, feedback INTEGER, card TEXT, parallel TEXT, offers INTEGER, fb_pct REAL,
   first_seen TEXT, last_seen TEXT, active INTEGER DEFAULT 1, c TEXT, measured_at TEXT, alerted INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_player ON listings(player, active);
 CREATE INDEX IF NOT EXISTS ix_measure ON listings(active, measured_at);
@@ -29,8 +29,9 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(listings)")}
-        if "offers" not in cols:  # databases from before this column existed
-            self.db.execute("ALTER TABLE listings ADD COLUMN offers INTEGER")
+        for col, typ in (("offers", "INTEGER"), ("fb_pct", "REAL")):  # columns added after launch
+            if col not in cols:
+                self.db.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
 
     # ── eBay call budget ──
     def today(self):
@@ -59,12 +60,12 @@ class Store:
         """Insert a new listing or refresh price/end/last_seen on a known one. Returns True if new."""
         t = now_iso()
         cur = self.db.execute(
-            "UPDATE listings SET price=?, ship=?, ends=?, offers=?, last_seen=?, active=1 WHERE id=?",
-            (l["price"], l["ship"], l["ends"], l["offers"], t, l["id"]))
+            "UPDATE listings SET price=?, ship=?, ends=?, offers=?, feedback=?, fb_pct=?, last_seen=?, active=1 WHERE id=?",
+            (l["price"], l["ship"], l["ends"], l["offers"], l["feedback"], l["fb_pct"], t, l["id"]))
         if cur.rowcount:
             return False
         cols = ["id", "player", "sport", "year", "set_name", "gem", "title", "url", "img", "n_img", "price",
-                "ship", "auction", "ends", "listed", "seller", "feedback", "card", "parallel", "offers"]
+                "ship", "auction", "ends", "listed", "seller", "feedback", "card", "parallel", "offers", "fb_pct"]
         self.db.execute(
             f"INSERT INTO listings({','.join(cols)},first_seen,last_seen,active) VALUES({','.join('?' * len(cols))},?,?,1)",
             [l[c] for c in cols] + [t, t])

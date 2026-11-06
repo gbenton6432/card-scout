@@ -122,6 +122,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
 
 @media (max-width: 640px) {
   .bar { position: static; display: grid; grid-template-columns: 1fr 1fr }
+  #f-sort { order: -1; grid-column: 1 / -1 }
   .bar select, .price-range, .serial { width: 100% }
   .serial input { flex: 1; min-width: 0 }
   .price-range input { flex: 1; min-width: 0 }
@@ -153,11 +154,11 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <option value="auction">Auctions only</option>
     </select>
     <select id="f-sort" aria-label="Sort">
-      <option value="center">Best centering</option>
-      <option value="price">Price: low to high</option>
-      <option value="price-desc">Price: high to low</option>
-      <option value="new">Newly listed</option>
-      <option value="ending">Auctions ending soon</option>
+      <option value="center">Sort: Best centering</option>
+      <option value="price">Sort: Price low to high</option>
+      <option value="price-desc">Sort: Price high to low</option>
+      <option value="new">Sort: Newly listed</option>
+      <option value="ending">Sort: Auctions ending soon</option>
     </select>
     <div class="price-range" role="group" aria-label="Asking price">
       <label for="f-min">$</label><input id="f-min" type="number" inputmode="decimal" min="0" placeholder="Min" aria-label="Minimum price">
