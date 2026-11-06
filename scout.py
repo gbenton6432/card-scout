@@ -409,6 +409,7 @@ def publish(store, cfg, scanner, run_stats):
     daily_sweep = max(1, budget_for_day(cfg) - 24 * len(scanner.players))
     index = {
         "updated": now_iso(), "players": players, "min_photos": photos.get("min_photos", 2),
+        "demo": bool(getattr(scanner.ebay, "is_demo", False)),
         "grading": cfg.get("grading", {}),
         "stats": {
             "active": len(rows), "shown": len(shown),
@@ -450,7 +451,14 @@ def set_output(**kv):
 def main():
     cfg = yaml.safe_load(open(os.path.join(HERE, "config.yaml")))
     demo = "--demo" in sys.argv or "--demo-scale" in sys.argv
-    store = Store(os.path.join(HERE, "cache", "listings.db"))
+    if not demo and not (os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")) \
+            and os.environ.get("GITHUB_ACTIONS"):
+        # No eBay keys yet: publish the sample dashboard instead of failing every run
+        print("No eBay keys yet (README step 3), so publishing the demo dashboard.")
+        demo = True
+    # Demo runs use their own database so sample cards never mix with real ones
+    store = Store(os.path.join(HERE, "cache", "demo.db" if demo else "listings.db"))
+
     a = cfg.get("alerts", {})
 
     if demo:
@@ -470,6 +478,9 @@ def main():
         set_output(ran="false")
         return
 
+    if demo and os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
+        set_output(ran="false")
+        return
     scanner = Scanner(cfg, store, ebay)
     scanner.ensure_units()
     ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else budget_for_run(cfg, store)

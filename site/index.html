@@ -102,6 +102,8 @@ select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible {
 .pill.serialno { background: var(--ink); color: var(--panel); border-color: transparent; font-family: var(--f-data); letter-spacing: 0 }
 .be { font: 500 .85rem var(--f-data); font-variant-numeric: tabular-nums; color: var(--muted) }
 .be b { color: var(--ink); font-weight: 600 }
+.demo-note { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 14px; font-size: .88rem }
+.demo-note b { color: inherit }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
 .btn.more { justify-self: center; padding: 10px 22px }
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; background: var(--panel); border: 1px dashed var(--line); border-radius: 10px }
@@ -138,6 +140,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <h1>Card <span>Scout</span></h1>
     <div class="meta" id="updated">Loading listings…</div>
   </header>
+  <div class="demo-note" id="demo-note" hidden><b>Demo data.</b> These are sample cards. Real eBay listings appear on the first scan after your eBay keys are added (README, step 3).</div>
   <div class="stats" id="stats"></div>
 
   <div class="bar" role="toolbar" aria-label="Filters">
@@ -510,6 +513,7 @@ $("#sync-form").addEventListener("submit", e => {
 
 function boot(idx) {
   INDEX = idx; DATA = true;
+  $("#demo-note").hidden = !idx.demo;
   const st = idx.stats || {};
   const up = new Date(idx.updated);
   $("#updated").textContent = `Last scan ${up.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;

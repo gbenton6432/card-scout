@@ -68,7 +68,7 @@ class DemoEbay:
         import random
         from datetime import datetime, timezone, timedelta
         from ebay import PAGE
-        self.store, self.used, self.budget = store, 0, 10 ** 9
+        self.store, self.used, self.budget, self.is_demo = store, 0, 10 ** 9, True
         out = os.path.join(HERE, "site", "demo"); os.makedirs(out, exist_ok=True)
         now = datetime.now(timezone.utc)
         self.items = []
