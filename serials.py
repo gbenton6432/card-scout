@@ -35,7 +35,7 @@ def read_serial(image_bytes, quad=None):
         x1, y1 = np.minimum(pts.max(0) + 10, [w, h]).astype(int)
         if (x1 - x0) > 100 and (y1 - y0) > 100:
             img = img[y0:y1, x0:x1]
-    s = 1400 / max(img.shape[:2])
+    s = 1100 / max(img.shape[:2])
     if s < 1:
         img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     result, _ = _engine()(img)

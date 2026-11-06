@@ -303,7 +303,9 @@ def measure_new(store, minutes, demo=False, read_serials=True):
             else:
                 data = open(os.path.join(HERE, "site", row["img"]), "rb").read()
             c = measure(data)
-            if read_serials and row["sport"] not in TCG_SPORTS:
+            # Skip the serial read for photos that clearly fail centering; they're dropped anyway
+            clearly_off = c.get("confidence", 0) >= 0.6 and c.get("worst", 0) > 56.5
+            if read_serials and row["sport"] not in TCG_SPORTS and not clearly_off:
                 try:
                     sn = read_serial(data, c.get("quad"))
                     if sn:

@@ -119,5 +119,5 @@ photos:
   psa10_max_split: 55
   tolerance: 1.5              # allowance for measurement error on good photos
   min_confidence_to_drop: 0.6
-  measure_minutes: 25         # time per hourly run spent measuring new photos
+  measure_minutes: 40         # time per hourly run spent measuring new photos
   read_serials: true          # read serial-number stamps (e.g. 023/199) off sports card photos
