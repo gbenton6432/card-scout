@@ -107,6 +107,7 @@ The dashboard header shows how far the first sweep has got and how often a full 
 
 - **Adding a player** needs no gem rate work. Add one line under `players` and they're searched across every qualifying set already on file.
 - **New sets and updated rates** come from a monthly scheduled task. Claude opens GemRate in the Claude desktop app's built-in browser (the app needs to be open and the computer awake), re-reads the Set Summary pages, and saves the new file here. The dashboard rescans when it changes.
+- **Card-level rates:** `card_rates.json` holds GemRate's PSA 10 rate for every card of each tracked player (by card number and parallel), so each listing shows both its set's rate and its exact card's rate. The cutoff still applies to the set. The monthly refresh updates this too, and new players are added at the next refresh.
 - The scripts in `tools/` are what the refresh runs.
 
 ## How consigners get removed
@@ -123,6 +124,7 @@ The dashboard header shows how many listings were removed each scan. If you thin
 
 - **PSA 10 sold comps:** each card has a button that opens eBay's sold listings for the PSA 10 version of that card. There's no free automated source of sold prices, so this is a one-tap manual check.
 - **Break-even:** the sale price that covers what you paid plus all-in grading, after eBay's 13.25% fee, for PSA Value ($45) and Value Bulk ($30). Change the amounts under `grading` in `config.yaml`.
+- **Profit target:** enter a percentage (e.g. 100) on the dashboard to see the sale price you'd need for that profit on top of break-even.
 - **Price filter and sorts:** set a min and max asking price; sort by price either way or by **Newly listed**.
 - **Accepts offers:** shown on the card and available as a filter.
 

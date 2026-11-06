@@ -310,6 +310,44 @@ def measure_new(store, minutes, demo=False, read_serials=True):
 
 # ── 4. Dashboard data ───────────────────────────────────────────────────
 
+def load_card_rates():
+    """Card-level PSA gem rates from GemRate (card_rates.json), indexed by player/year/set."""
+    idx = defaultdict(list)
+    try:
+        rows = json.load(open(os.path.join(HERE, "card_rates.json")))["cards"]
+    except FileNotFoundError:
+        return idx
+    for player, year, set_name, num, parallel, total, gems, psa9 in rows:
+        idx[(player, str(year), set_name)].append(
+            (re.sub(r"[\s#-]", "", str(num)).upper(), parallel, set(_norm(parallel).split()) - {"base"}, total, gems, psa9))
+    return idx
+
+
+def card_rate(idx, r):
+    """GemRate's numbers for this exact card (number + parallel), if it can be identified."""
+    if not r["card"]:
+        return None
+    cands = [c for c in idx.get((r["player"], r["year"], r["set_name"]), []) if c[0] == r["card"]]
+    if not cands:
+        return None
+    want = {w for w in re.split(r"[+]", r["parallel"] or "") if w and w != "base" and not w.startswith("/")}
+    want = {{"autograph": "auto", "xfractor": "x"}.get(w, w) for w in want}
+    best, score = None, 0
+    for c in cands:
+        have = {{"autograph": "auto", "fractor": "x"}.get(w, w) for w in c[2]}
+        if not want and not have:
+            s_ = 2.0
+        elif want or have:
+            s_ = len(want & have) / max(1, len(want | have))
+        if s_ > score:
+            best, score = c, s_
+    if not best or score < 0.5:
+        return None
+    _, parallel, _, total, gems, psa9 = best
+    return {"rate": round(100 * gems / total, 1) if total else None, "graded": total, "psa10": gems,
+            "psa9": psa9, "parallel": parallel}
+
+
 def slug(name):
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
@@ -342,17 +380,20 @@ def publish(store, cfg, scanner, run_stats):
             groups[(r["player"], r["year"], r["set_name"], r["card"], r["parallel"])].append(r["price"] + (r["ship"] or 0))
     typical = {k: statistics.median(v) for k, v in groups.items() if len(v) >= 3}
 
+    cidx = load_card_rates()
     os.makedirs(os.path.join(SITE_DATA, "players"), exist_ok=True)
     by_player = defaultdict(list)
     for r in shown:
         c = r["c"] or {}
         t = typical.get((r["player"], r["year"], r["set_name"], r["card"], r["parallel"]))
+        cr = card_rate(cidx, r)
         by_player[r["player"]].append({
             "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
             "p": r["price"], "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"], "o": r["offers"],
             "f": r["first_seen"], "sl": r["seller"], "fb": r["feedback"], "y": r["year"],
             "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
             "x": round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None,
+            "cg": [cr["rate"], cr["graded"], cr["psa10"], cr["psa9"], cr["parallel"]] if cr else None,
             "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
                   "q": c.get("quad"), "note": c.get("note"), "sn": c.get("sn")} if r["c"] else None,
         })
