@@ -18,6 +18,7 @@
   for (const p of PLAYERS) {
     try {
       const fd = new FormData(form);
+      if (p.category === "disney-cards") p.category = "non-sport-cards";  // Disney characters live under Non-Sport
       fd.set("grader", "psa"); fd.set("category", p.category); fd.set("player", p.name);
       const h = await (await fetch("/player", { method: "POST", body: new URLSearchParams(fd), credentials: "same-origin" })).text();
       const rows = rowsFrom(h);

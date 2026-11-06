@@ -25,6 +25,30 @@ players:
   - {name: Cavan Sullivan,  sport: soccer,     years: 2024-, jersey: [6, 7]}
   - {name: Kylian Mbappe,   sport: soccer,     years: 2016-, jersey: [10, 9, 7, 29]}
 
+  # Disney characters: Topps Chrome Disney sets only. "search" is what's typed into eBay
+  # (after "Topps Chrome Disney"); "name" is the character as GemRate lists it.
+  - {name: Mickey Mouse, sport: disney, years: 2023-, search: "Topps Chrome Disney Mickey", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Minnie Mouse, sport: disney, years: 2023-, search: "Topps Chrome Disney Minnie", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Buzz Lightyear, sport: disney, years: 2023-, search: "Topps Chrome Disney Buzz Lightyear", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Woody, sport: disney, years: 2023-, search: "Topps Chrome Disney Woody", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Elsa, sport: disney, years: 2023-, search: "Topps Chrome Disney Elsa", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Anna, sport: disney, years: 2023-, search: "Topps Chrome Disney Anna", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Stitch, sport: disney, years: 2023-, search: "Topps Chrome Disney Stitch", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Goofy, sport: disney, years: 2023-, search: "Topps Chrome Disney Goofy", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Pluto, sport: disney, years: 2023-, search: "Topps Chrome Disney Pluto", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Cinderella, sport: disney, years: 2023-, search: "Topps Chrome Disney Cinderella", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Snow White, sport: disney, years: 2023-, search: "Topps Chrome Disney Snow White", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Moana, sport: disney, years: 2023-, search: "Topps Chrome Disney Moana", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Donald Duck, sport: disney, years: 2023-, search: "Topps Chrome Disney Donald", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+  - {name: Winnie the Pooh, sport: disney, years: 2023-, search: "Topps Chrome Disney Pooh", sets_only: [Topps Chrome Disney, Topps Chrome Sapphire Disney]}
+
+# ── Which brands count ────────────────────────────────────────
+# A set is used only if its name starts with one of these (Bowman, Finest,
+# Stadium Club and Ben Baller are Topps brands; Donruss, Score and Playoff are
+# Panini's). Players can override with their own sets_only list.
+set_brands:
+  sports: [Topps, Bowman, "Bowman's", Finest, Stadium Club, Ben Baller, Panini, Donruss, Score, Playoff]
+
 # ── Extra sets (optional) ─────────────────────────────────────
 # Gem rates for every set are kept in gem_rates.yaml automatically.
 # Add a set here only if it's missing there, with its PSA 10 gem rate (%).
@@ -34,7 +58,14 @@ players:
 #          e.g. Prizm → [draft picks] so Prizm Draft Picks isn't counted
 # Format:
 #   - {year: 2018, set: Topps Chrome Update, sport: baseball, gem_rate: 48}
-sets: []   # to be filled from GemRate
+sets:
+  # Topps Chrome Disney, until GemRate's rates for them are collected (they count
+  # whatever their rate until then)
+  - {year: 2023, set: Topps Chrome Disney 100, sport: disney}
+  - {year: 2024, set: Topps Chrome Disney, sport: disney}
+  - {year: 2025, set: Topps Chrome Disney, sport: disney}
+  - {year: 2025, set: Topps Chrome Sapphire Disney, sport: disney}
+  - {year: 2026, set: Topps Chrome Disney, sport: disney}
 
 # Optional: one-off searches that don't fit the player × set pattern.
 extra_searches: []

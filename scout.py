@@ -78,15 +78,28 @@ class Matcher:
     def __init__(self, cfg):
         self.cutoff = float(cfg.get("gem_rate_min", 0) or 0)
         self.sets = defaultdict(list)  # (sport, year) -> [set]
+        merged = {}
+        # Sets listed in config.yaml without a rate count until GemRate's rate arrives
         for st in list(cfg.get("sets") or []) + load_gem_rates():
-            sport = str(st.get("sport", "")).lower()
+            key = (str(st.get("sport", "")).lower(), int(str(st["year"])[:4]), st["set"].lower())
+            if key not in merged or st.get("gem_rate") is not None:
+                merged[key] = st
+        for (sport, year, _), st in merged.items():
+            rate = st.get("gem_rate")
             st = dict(st, _aliases=_aliases(st["set"]),
-                      _ok=float(st.get("gem_rate", 0) or 0) >= self.cutoff)
-            self.sets[(sport, int(str(st["year"])[:4]))].append(st)
+                      _ok=rate is None or float(rate) >= self.cutoff)
+            self.sets[(sport, year)].append(st)
 
-    def qualifying_years(self, sport, lo, hi):
+    @staticmethod
+    def allowed(player, st):
+        """Brand rule: the set must start with one of the player's allowed set prefixes."""
+        name = st["set"].lower()
+        return not player["sets"] or any(name.startswith(p) for p in player["sets"])
+
+    def qualifying_years(self, player):
         return sorted(y for (sp, y), sts in self.sets.items()
-                      if sp == sport and lo <= y <= hi and any(s["_ok"] for s in sts))
+                      if sp == player["sport"] and player["lo"] <= y <= player["hi"]
+                      and any(s["_ok"] and self.allowed(player, s) for s in sts))
 
     def match(self, title, player):
         """(year, set dict) if the title is from a qualifying set, else None."""
@@ -103,7 +116,7 @@ class Matcher:
                     if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
                         best, best_len = st, len(a)
             if best:
-                return (y, best) if best["_ok"] else None
+                return (y, best) if best["_ok"] and self.allowed(player, best) else None
         return None
 
 
@@ -111,13 +124,17 @@ class Matcher:
 
 def players_from(cfg):
     out = []
+    brands = cfg.get("set_brands") or {}
     for p in cfg.get("players") or []:
         lo, hi = _years(p.get("years"))
         sport = str(p.get("sport", "")).lower()
         jersey = p.get("jersey", [])
+        sets_only = p.get("sets_only") or brands.get(sport) or brands.get("sports" if sport not in TCG_SPORTS | {"disney"} else sport) or []
         out.append({"name": p["name"], "sport": sport, "lo": lo, "hi": hi,
                     "jersey": [int(j) for j in (jersey if isinstance(jersey, list) else [jersey])],
-                    "category": "tcg" if sport in TCG_SPORTS else "sports"})
+                    "search": p.get("search") or p["name"],
+                    "sets": [x.lower() for x in sets_only],
+                    "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
     return out
 
 
@@ -186,7 +203,7 @@ class Scanner:
     def new_listings(self, max_pages=3):
         for p in self.players:
             for page in range(max_pages):
-                items, _ = self.ebay.search(f"{p['name']} {self.neg}", p["category"], self.d, self.cons,
+                items, _ = self.ebay.search(f"{p['search']} {self.neg}", p["category"], self.d, self.cons,
                                             self.d.get("min_price"), self.d.get("max_price"), offset=page * PAGE)
                 seen_before = sum(1 for it in items if self.store.known(it.get("itemId")))
                 self.ingest(items, p)
@@ -198,7 +215,7 @@ class Scanner:
     def ensure_units(self):
         want = set()
         for p in self.players:
-            for y in self.matcher.qualifying_years(p["sport"], p["lo"], p["hi"]):
+            for y in self.matcher.qualifying_years(p):
                 want.add((p["name"], str(y)))
         have = {(r["player"], r["year"]) for r in self.store.db.execute("SELECT player, year FROM units")}
         lo, hi = self.d.get("min_price"), self.d.get("max_price")
@@ -220,7 +237,7 @@ class Scanner:
             p = by_name[u["player"]]
             if u["next_offset"] == 0:
                 self.store.db.execute("UPDATE units SET started=? WHERE key=?", (now_iso(), u["key"]))
-            items, total = self.ebay.search(f"{u['year']} {p['name']} {self.neg}", p["category"], self.d,
+            items, total = self.ebay.search(f"{u['year']} {p['search']} {self.neg}", p["category"], self.d,
                                             self.cons, u["lo"], u["hi"], offset=u["next_offset"])
             hi_cap = u["hi"] if u["hi"] is not None else 100000
             if total > MAX_RESULTS - PAGE and hi_cap - (u["lo"] or 0) > 2:

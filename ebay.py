@@ -5,7 +5,8 @@ import requests
 
 API = "https://api.ebay.com"
 CATEGORIES = {"sports": "261328",  # Sports Trading Card Singles
-              "tcg": "183454"}     # CCG Individual Cards (Pokémon, Magic, etc.)
+              "tcg": "183454",     # CCG Individual Cards (Pokémon, Magic, etc.)
+              "nonsport": "183050"}  # Non-Sport Trading Card Singles (Disney, etc.)
 UNGRADED = "4000"                  # eBay trading-card condition id for "Ungraded"
 PAGE = 200                         # most results eBay returns per call
 MAX_RESULTS = 10000                # most results eBay will page through for one search
