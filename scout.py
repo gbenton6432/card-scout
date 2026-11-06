@@ -523,6 +523,13 @@ def main():
     if demo and os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
         set_output(ran="false")
         return
+    # When the centering method improves, re-measure the readings it would change
+    if store.get("centering_version", 1) < 2:
+        n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE c IS NOT NULL AND "
+                             "json_extract(c, '$.worst') > 62").rowcount
+        store.put("centering_version", 2)
+        store.commit()
+        print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)
     scanner.ensure_units()
     ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else budget_for_run(cfg, store)
