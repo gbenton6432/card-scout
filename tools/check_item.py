@@ -68,6 +68,18 @@ def key_for(text):
     return m.group(1) if m else re.sub(r"[^A-Za-z0-9]", "", text.rstrip("/").split("/")[-1].split("?")[0])
 
 
+def put_file(path_in_repo, raw_bytes, message):
+    repo, tok = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
+    api = f"https://api.github.com/repos/{repo}"
+    h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+    path = f"{api}/contents/{path_in_repo}"
+    old = requests.get(path, headers=h, params={"ref": "checks"}, timeout=20)
+    body = {"message": message, "branch": "checks", "content": base64.b64encode(raw_bytes).decode()}
+    if old.ok:
+        body["sha"] = old.json()["sha"]
+    return requests.put(path, headers=h, json=body, timeout=30).status_code
+
+
 def save(legacy, result):
     """Write checks/<key>.json to the 'checks' branch (created if needed)."""
     repo, tok = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
@@ -84,6 +96,9 @@ def save(legacy, result):
         body["sha"] = old.json()["sha"]
     r = requests.put(path, headers=h, json=body, timeout=20)
     print(f"Saved for the dashboard ({r.status_code})")
+    if result.get("img"):  # keep the photo too, so a misread can be looked at later
+        print("Photo saved", put_file(f"checks/{legacy}.jpg", requests.get(result["img"], timeout=30).content,
+                                      f"Photo for listing {legacy}"))
 
 
 if __name__ == "__main__":
