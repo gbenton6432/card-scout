@@ -1,0 +1,49 @@
+{
+ "item": "800858163167",
+ "checked": "2026-11-07T00:02:19+00:00",
+ "title": "2023-24 Panini Donruss - Bomb Squad Stephen Curry #1",
+ "url": "https://www.ebay.com/itm/800858163167",
+ "img": "https://i.ebayimg.com/images/g/zUwAAeSwcKBqycE2/s-l1600.jpg",
+ "options": [
+  "FIXED_PRICE",
+  "AUCTION"
+ ],
+ "price": "80.00",
+ "bid": "25.00",
+ "bids": null,
+ "ends": "2026-11-07T05:41:04.000Z",
+ "seller": "aussore81",
+ "feedback": 2,
+ "feedback_pct": "100.0",
+ "c": {
+  "quad": [
+   [
+    0.0805,
+    0.105
+   ],
+   [
+    0.9363,
+    0.0842
+   ],
+   [
+    0.9567,
+    0.9342
+   ],
+   [
+    0.0613,
+    0.9125
+   ]
+  ],
+  "lr": 54.9,
+  "tb": 15.8,
+  "worst": 84.2,
+  "centering": "55/45 LR \u00b7 84/16 TB",
+  "psa10_ok": false,
+  "confidence": 0.0,
+  "note": "no consistent border found (borderless or full-art design?), check by eye",
+  "spread": 0.059,
+  "uneven": 51.1,
+  "sn": null
+ },
+ "key": "oEQeEv"
+}
