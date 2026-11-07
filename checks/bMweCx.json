@@ -1,6 +1,6 @@
 {
  "item": "168844985450",
- "checked": "2026-11-07T14:55:24+00:00",
+ "checked": "2026-11-07T15:01:34+00:00",
  "title": "2025 Topps x Bob Ross: The Joy of Baseball #34-SP Aaron Judge Image Variation SP",
  "url": "https://www.ebay.com/itm/168844985450",
  "img": "https://i.ebayimg.com/images/g/oVEAAeSw21Zq7rVd/s-l1600.jpg",
@@ -18,31 +18,30 @@
  "c": {
   "quad": [
    [
-    0.2567,
-    0.2825
+    0.2373,
+    0.2677
    ],
    [
-    0.7256,
-    0.2825
+    0.7434,
+    0.2677
    ],
    [
-    0.7256,
-    0.7842
+    0.7434,
+    0.8013
    ],
    [
-    0.2567,
-    0.7842
+    0.2373,
+    0.8013
    ]
   ],
-  "lr": 56.5,
-  "tb": 57.1,
-  "worst": 57.1,
-  "centering": "57/43 LR \u00b7 57/43 TB",
+  "lr": 59.0,
+  "tb": null,
+  "worst": 59.0,
+  "centering": "59/41 LR",
   "psa10_ok": false,
-  "confidence": 0.0,
-  "note": "no consistent border found (borderless or full-art design?), check by eye",
-  "spread": 0.051,
-  "uneven": 53.3,
+  "confidence": 0.61,
+  "note": "left/right only; top/bottom unclear",
+  "method": "frame",
   "sn": null
  },
  "key": "bMweCx"
