@@ -297,8 +297,9 @@ function readable(l) { return (l.c?.confidence ?? 0) >= 0.35 }
 function splitPill(l) {
   if (!readable(l)) return l.c ? `<span class="pill warn">Centering unclear</span>` : `<span class="pill warn">Measuring soon</span>`;
   const w = l.c.worst;
-  if (w <= 55.5) return `<span class="pill good">PSA 10 centering</span>`;
-  if (w <= 60.5) return `<span class="pill warn">PSA 9 centering</span>`;
+  const only = l.c.lr == null ? " (top/bottom only)" : l.c.tb == null ? " (left/right only)" : "";
+  if (w <= 55.5) return `<span class="pill good">PSA 10 centering${only}</span>`;
+  if (w <= 60.5) return `<span class="pill warn">PSA 9 centering${only}</span>`;
   return `<span class="pill bad">Off-center</span>`;
 }
 function ago(iso) {
