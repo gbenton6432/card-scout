@@ -323,6 +323,10 @@ function breakEven(l) {
   return html;
 }
 function splitText(v) { const a = Math.round(Math.max(v, 100 - v)); return `${a}/${100 - a}` }
+function splits(l) {
+  const c = l.c;
+  return `<div class="split">${c.lr != null ? `<span>${splitText(c.lr)}<small>left/right</small></span>` : `<span>–<small>left/right unclear</small></span>`}${c.tb != null ? `<span>${splitText(c.tb)}<small>top/bottom</small></span>` : `<span>–<small>top/bottom unclear</small></span>`}</div>`;
+}
 function itemUrl(id, u) { const m = /^v1\|(\d+)\|/.exec(id); return m ? `https://www.ebay.com/itm/${m[1]}` : u }
 function soldUrl(l) {
   const set = l.set.replace(/^Panini /, "");
@@ -428,7 +432,7 @@ function row(l) {
       <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
       <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Current bid · " + rel(l.ends) : "Buy It Now"}</span>${l.bin ? `<span>or Buy It Now ${money(l.bin)}</span>` : ""}${l.offers ? "<span>Accepts offers</span>" : ""}<span>Listed ${ago(l.listed)}</span></div>
       <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${serialPill(l)}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
-      ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
+      ${readable(l) ? splits(l) : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
       ${breakEven(l)}
       <div class="rates"><span>Set gem rate <b>${l.gem != null ? l.gem + "%" : "–"}</b></span><span>${l.cg ? `Card gem rate <b>${l.cg.rate}%</b> (${l.cg.graded.toLocaleString()} graded${l.cg.parallel && l.cg.parallel !== "Base" ? ", " + esc(l.cg.parallel) : ""})` : "Card gem rate <b>–</b>"}</span>${l.cg ? `<span>PSA 10 pop <b>${l.cg.psa10.toLocaleString()}</b></span>` : ""}</div>
       <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
@@ -582,7 +586,7 @@ function showCheck(res) {
       <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
       <div class="sub"><span class="price">${money(l.price)}</span><span>${auction ? "Current bid" + (res.price && res.bid ? ` · or Buy It Now ${money(parseFloat(res.price))}` : "") : "Buy It Now"}</span></div>
       <div class="pills">${serialPill(l)}${splitPill(l)}</div>
-      ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : (c.note ? `<div class="sub">${esc(c.note)}</div>` : "")}
+      ${readable(l) ? splits(l) : (c.note ? `<div class="sub">${esc(c.note)}</div>` : "")}
       ${breakEven(l)}
       <div class="sub"><span>Seller ${esc(res.seller || "")} (${(res.feedback ?? 0).toLocaleString()}${res.feedback_pct ? ", " + res.feedback_pct + "%" : ""})</span></div>
     </div>

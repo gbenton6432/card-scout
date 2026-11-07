@@ -30,7 +30,8 @@ def _split(v):
 
 def _row(l):
     c = l.get("c") or {}
-    cen = f"{_split(c['lr'])} · {_split(c['tb'])}" if c.get("lr") is not None else "–"
+    cen = " · ".join(x for x in (_split(c["lr"]) + " LR" if c.get("lr") is not None else "",
+                                 _split(c["tb"]) + " TB" if c.get("tb") is not None else "") if x) or "–"
     return f"| [{l['t'][:70]}]({l['u']}) | ${l['p']:,.2f} | {cen} | {l.get('g', '–')}% |"
 
 

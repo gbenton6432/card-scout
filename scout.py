@@ -531,10 +531,11 @@ def main():
         set_output(ran="false")
         return
     # When the centering method improves, re-measure the readings it would change
-    if store.get("centering_version", 1) < 2:
-        n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE c IS NOT NULL AND "
-                             "json_extract(c, '$.worst') > 62").rowcount
-        store.put("centering_version", 2)
+    if store.get("centering_version", 1) < 3:
+        # v3 finds the real card edge when the outline found was the border's frame line, and
+        # measures each direction on its own: re-measure everything
+        n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE measured_at IS NOT NULL").rowcount
+        store.put("centering_version", 3)
         store.commit()
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)

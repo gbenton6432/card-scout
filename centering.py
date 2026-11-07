@@ -65,44 +65,114 @@ def _border(profile, lo, hi):
     return lo + i, strength
 
 
-def _measure_borders(card):
+def _peak(profile, lo, hi):
+    """Strongest edge in profile[lo:hi] -> (index, strength vs. that zone's median)."""
+    lo, hi = max(0, lo), min(len(profile), hi)
+    seg = profile[lo:hi]
+    if len(seg) < 3:
+        return None, 0.0
+    # The first strong edge from the outside is the border line; a frame line's far side or
+    # artwork further in can be stronger but isn't where the border ends.
+    peak = float(seg.max())
+    i = int(np.argmax(seg >= 0.5 * peak))
+    while i + 1 < len(seg) and seg[i + 1] >= seg[i]:  # climb to the top of that edge
+        i += 1
+    return lo + i, float(seg[i] / (np.median(seg) + 1e-6))
+
+
+def _side_checks(gray, find, slices):
+    """Run `find(a, b)` -> (pos, strength) on the middle of a side and on three slices along it.
+    Returns (pos, strength, spread) where spread is how far the three slice readings disagree."""
+    pos, strength = find(.2, .8)
+    vals = [find(a, b)[0] for a, b in slices]
+    vals = [v for v in vals if v is not None]
+    spread = (max(vals) - min(vals)) if len(vals) == 3 else 1e9
+    return pos, strength, spread
+
+
+SLICES = ((.15, .35), (.4, .6), (.65, .85))
+
+
+def _inner_lines(card):
+    """Card outline found = the card's edge: look inward for the border/artwork line on each side.
+    Returns {side: (width_px, ok)}."""
     gray = cv2.cvtColor(card, cv2.COLOR_BGR2GRAY).astype(np.float32)
     gx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
     gy = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
     h, w = gray.shape
-    skip_x, skip_y = int(w * .015), int(h * .015)   # ignore the physical edge itself
-    max_x, max_y = int(w * .22), int(h * .22)       # borders are never wider than this
+    sx, sy, mx, my = int(w * .015), int(h * .015), int(w * .22), int(h * .22)
+    finders = {
+        "l": (lambda a, b: _peak(np.median(gx[int(h * a):int(h * b), :], 0), sx, mx), w),
+        "r": (lambda a, b: _peak(np.median(gx[int(h * a):int(h * b), ::-1], 0), sx, mx), w),
+        "t": (lambda a, b: _peak(np.median(gy[:, int(w * a):int(w * b)], 1), sy, my), h),
+        "b": (lambda a, b: _peak(np.median(gy[::-1, int(w * a):int(w * b)], 1), sy, my), h),
+    }
+    out = {}
+    for side, (find, dim) in finders.items():
+        pos, strength, spread = _side_checks(gray, find, SLICES)
+        if pos is None:
+            out[side] = (None, False)
+            continue
+        # the band between the card edge and the line should be an even color (a printed border)
+        # stay clear of the edge shading and the line's own blur on either side of the band
+        end = max(pos - max(4, int(pos * .15)), sx + 3)
+        if side == "l":
+            band = gray[int(h * .3):int(h * .7), sx + 2:end]
+        elif side == "r":
+            band = gray[int(h * .3):int(h * .7), w - end:w - sx - 2]
+        elif side == "t":
+            band = gray[sy + 2:end, int(w * .3):int(w * .7)]
+        else:
+            band = gray[h - end:h - sy - 2, int(w * .3):int(w * .7)]
+        even = band.size == 0 or float(np.std(band)) <= 32
+        out[side] = (pos, strength >= 2.0 and spread <= .03 * dim and even)
+    return out
 
-    def sides(y0, y1, x0, x1):
-        col = np.median(gx[y0:y1, :], axis=0)
-        row = np.median(gy[:, x0:x1], axis=1)
-        l, sl = _border(col, skip_x, max_x)
-        r, sr = _border(col[::-1], skip_x, max_x)
-        t, st = _border(row, skip_y, max_y)
-        b, sb = _border(row[::-1], skip_y, max_y)
-        return (l, r, t, b), min(sl, sr, st, sb)
 
-    # Whole middle of each side (main reading), then three separate slices along it.
-    # A printed border sits at the same depth all the way along; a design element doesn't.
-    main, strength = sides(int(h * .2), int(h * .8), int(w * .2), int(w * .8))
-    slices = [sides(int(h * a), int(h * b), int(w * a), int(w * b))[0]
-              for a, b in ((.15, .35), (.4, .6), (.65, .85))]
-    spread = 0.0
-    for k, dim in ((0, w), (1, w), (2, h), (3, h)):
-        vals = [s_[k] for s_ in slices if s_[k] is not None]
-        if len(vals) == 3:
-            spread = max(spread, (max(vals) - min(vals)) / dim)
-
-    # A border is a fairly even band of color between the card edge and the line found
-    uneven = 0.0
-    l, r, t, b = main
-    if None not in main:
-        strips = [gray[int(h * .3):int(h * .7), skip_x:max(l, skip_x + 1)],
-                  gray[int(h * .3):int(h * .7), w - max(r, skip_x + 1):w - skip_x],
-                  gray[skip_y:max(t, skip_y + 1), int(w * .3):int(w * .7)],
-                  gray[h - max(b, skip_y + 1):h - skip_y, int(w * .3):int(w * .7)]]
-        uneven = max(float(np.std(x)) for x in strips if x.size) if any(x.size for x in strips) else 0.0
-    return main, strength, spread, uneven
+def _outer_edges(img, quad, W_=W, H_=H):
+    """Card outline found might be the border's inner frame line (on a light background the card's
+    real edge is faint). Look just outside it for a parallel card edge with an even border band.
+    Returns ({side: (width_px, ok)}, canvas transform) in a canvas where the found outline is a
+    W_ x H_ rectangle."""
+    ex, ey = int(W_ * .16), int(H_ * .16)
+    dst = np.float32([[ex, ey], [ex + W_, ey], [ex + W_, ey + H_], [ex, ey + H_]])
+    M = cv2.getPerspectiveTransform(quad, dst)
+    canvas = cv2.warpPerspective(img, M, (W_ + 2 * ex, H_ + 2 * ey), borderMode=cv2.BORDER_REPLICATE)
+    gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    gx = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+    gy = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+    lo_x, hi_x, lo_y, hi_y = int(W_ * .012), int(W_ * .14), int(H_ * .012), int(H_ * .14)
+    rows = lambda a, b: slice(ey + int(H_ * a), ey + int(H_ * b))
+    cols = lambda a, b: slice(ex + int(W_ * a), ex + int(W_ * b))
+    # profiles run outward from the found outline; index = distance outside it
+    finders = {
+        "l": (lambda a, b: _peak(np.median(gx[rows(a, b), :ex][:, ::-1], 0), lo_x, hi_x), W_),
+        "r": (lambda a, b: _peak(np.median(gx[rows(a, b), ex + W_:], 0), lo_x, hi_x), W_),
+        "t": (lambda a, b: _peak(np.median(gy[:ey, cols(a, b)][::-1], 1), lo_y, hi_y), H_),
+        "b": (lambda a, b: _peak(np.median(gy[ey + H_:, cols(a, b)], 1), lo_y, hi_y), H_),
+    }
+    out, bands = {}, {}
+    for side, (find, dim) in finders.items():
+        pos, strength, spread = _side_checks(gray, find, SLICES)
+        if pos is None:
+            out[side] = (None, False)
+            continue
+        if side == "l":
+            band = gray[rows(.3, .7), ex - pos + 2:ex - 2]
+        elif side == "r":
+            band = gray[rows(.3, .7), ex + W_ + 2:ex + W_ + pos - 2]
+        elif side == "t":
+            band = gray[ey - pos + 2:ey - 2, cols(.3, .7)]
+        else:
+            band = gray[ey + H_ + 2:ey + H_ + pos - 2, cols(.3, .7)]
+        even = band.size > 0 and float(np.std(band)) <= 22
+        bands[side] = float(np.mean(band)) if band.size else None
+        out[side] = (pos, strength >= 2.5 and spread <= .025 * dim and even)
+    # opposite sides of a real border are the same color (allowing for uneven lighting)
+    for a, b in (("l", "r"), ("t", "b")):
+        if out[a][1] and out[b][1] and abs(bands[a] - bands[b]) > 35:
+            out[a], out[b] = (out[a][0], False), (out[b][0], False)
+    return out, M, (ex, ey)
 
 
 def measure(image_bytes):
@@ -122,39 +192,55 @@ def measure(image_bytes):
 
     landscape = np.linalg.norm(quad[1] - quad[0]) > np.linalg.norm(quad[3] - quad[0])
     tw, th = (H, W) if landscape else (W, H)
-    M = cv2.getPerspectiveTransform(quad, np.float32([[0, 0], [tw, 0], [tw, th], [0, th]]))
-    card = cv2.warpPerspective(img, M, (tw, th))
+    out = {}
 
-    (l, r, t, b), edge_strength, spread, uneven = _measure_borders(card)
-    out = {"quad": [[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in quad]}
-    if None in (l, r, t, b) or min(l, r, t, b) <= 0:
-        out.update(confidence=0, note="borders not found (full-art or borderless card?)")
+    def axis(s1, s2):
+        (a, ok_a), (b, ok_b) = s1, s2
+        if not (ok_a and ok_b) or not a or not b:
+            return None
+        v = float(100 * a / (a + b))
+        return v if max(v, 100 - v) <= 70 else None  # beyond 70/30 is almost always a misread
+
+    # 1) The outline found may be the border's inner frame line (a gray card on a light
+    #    background has a faint edge). If a consistent card edge sits just outside it on both
+    #    sides of an axis, widen the outline to the real card edge on those sides.
+    outer, M, (ex, ey) = _outer_edges(img, quad, tw, th)
+    card_quad, method = quad, "edge"
+    grow = {k: 0 for k in "lrtb"}
+    for a, b in (("l", "r"), ("t", "b")):
+        if outer[a][1] and outer[b][1]:
+            grow[a], grow[b] = outer[a][0], outer[b][0]
+    if any(grow.values()):
+        method = "frame"
+        pts = np.float32([[ex - grow["l"], ey - grow["t"]], [ex + tw + grow["r"], ey - grow["t"]],
+                          [ex + tw + grow["r"], ey + th + grow["b"]], [ex - grow["l"], ey + th + grow["b"]]])
+        card_quad = cv2.perspectiveTransform(pts[None], np.linalg.inv(M))[0].astype(np.float32)
+
+    # 2) From the card edge, look inward for the border line on each side.
+    M2 = cv2.getPerspectiveTransform(card_quad, np.float32([[0, 0], [tw, 0], [tw, th], [0, th]]))
+    inner = _inner_lines(cv2.warpPerspective(img, M2, (tw, th)))
+    lr, tb = axis(inner["l"], inner["r"]), axis(inner["t"], inner["b"])
+
+    out["quad"] = [[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in card_quad]
+    if lr is None and tb is None:
+        out.update(confidence=0, note="no consistent border found (borderless or full-art design?), check by eye")
         return out
-
-    lr = float(100 * l / (l + r))
-    tb = float(100 * t / (t + b))
-    worst = max(lr, 100 - lr, tb, 100 - tb)
-
-    conf = float(find_conf * min(1.0, edge_strength / 4))
-    notes = []
-    if edge_strength < 2.5:
-        notes.append("border edge faint")
-    if find_conf < 0.4:
-        notes.append("card outline uncertain")
-    if spread > 0.03 or uneven > 32 or worst > 70:
-        # No consistent printed border (full-art/borderless design, or the line found is part of
-        # the artwork): don't trust this reading at all
-        conf = 0.0
-        notes = ["no consistent border found (borderless or full-art design?), check by eye"]
 
     def fmt(v):
         a = round(max(v, 100 - v)); return f"{a}/{100 - a}"
 
+    notes = []
+    if lr is None:
+        notes.append("top/bottom only; left/right unclear")
+    if tb is None:
+        notes.append("left/right only; top/bottom unclear")
+    parts = [x for x in (lr, tb) if x is not None]
+    worst = max(max(v, 100 - v) for v in parts)
+    conf = float(min(1.0, 0.45 + find_conf)) * (1.0 if len(parts) == 2 else 0.85)
     out.update(
-        lr=round(lr, 1), tb=round(tb, 1), worst=round(worst, 1),
-        centering=f"{fmt(lr)} LR · {fmt(tb)} TB",
-        psa10_ok=bool(worst <= 55.5),
-        confidence=round(conf, 2), note=", ".join(notes),
-        spread=round(spread, 3), uneven=round(uneven, 1),
+        lr=round(lr, 1) if lr is not None else None, tb=round(tb, 1) if tb is not None else None,
+        worst=round(worst, 1),
+        centering=" · ".join(x for x in (f"{fmt(lr)} LR" if lr is not None else "", f"{fmt(tb)} TB" if tb is not None else "") if x),
+        psa10_ok=bool(worst <= 55.5), confidence=round(conf, 2), note=", ".join(notes), method=method,
     )
     return out
