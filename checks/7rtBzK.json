@@ -1,8 +1,8 @@
 {
  "item": "900060477847",
- "checked": "2026-11-07T21:42:19+00:00",
+ "checked": "2026-11-07T21:47:36+00:00",
  "title": "2018 Panini Donruss Kylian Mbappe ROOKIE Press Proof Red #53 PSG",
- "url": "https://www.ebay.com/itm/900060477847?amdata=enc%3AAQALAAAAoCHNgUiiE%2FjQhlDTaMiAde%2F5wTdFPmc495zP9%2Bdiq16v4RkWdrtDAKKN0MtNIW2yTmvXQDex%2F12hzdUzTLVl%2BSSvsTo3e8PusKobtGotvNR0sMnu5V3zR9M0G2jIa%2F2hJljMOJpOf9V%2BhrVq23VFCxmSTeerWgWQjAo2yh95Z9dnYiiaC5dW4OL1YEj6VkMHutbUD3YD63kd96l3vH%2FYiwY%3D",
+ "url": "https://www.ebay.com/itm/900060477847?amdata=enc%3AAQALAAAAoCHNgUiiE%2FjQhlDTaMiAde%2F5wTdFPmc495zP9%2Bdiq16v4RkWdrtDAKKN0MtNIW2yTm8BM2HgVTC1DXDrQOmvK79i3zao8OypfdYlTgd1VfMU2IWqfBS8XFBwlsMOMuAz3kf8fglphpsEEjg3JELJWZ%2Bs1e%2FimyxAQFNjBGv7jCgy19xy%2BzUMa8yBZgz2sCGVuMwmOPe1tiDryQaI2CUiPQE%3D",
  "img": "https://i.ebayimg.com/images/g/NfgAAeSwNg1q6TId/s-l1600.jpg",
  "options": [
   "FIXED_PRICE"
@@ -17,24 +17,30 @@
  "c": {
   "quad": [
    [
-    0.0,
-    0.1308
+    0.1929,
+    0.1333
    ],
    [
-    0.9989,
-    0.1308
+    0.8624,
+    0.1333
    ],
    [
-    0.9989,
-    0.9992
+    0.8896,
+    0.8404
    ],
    [
-    -0.0,
-    0.9992
+    0.2199,
+    0.836
    ]
   ],
-  "confidence": 0,
-  "note": "no consistent border found (borderless or full-art design?), check by eye",
+  "lr": null,
+  "tb": 58.7,
+  "worst": 58.7,
+  "centering": "59/41 TB",
+  "psa10_ok": false,
+  "confidence": 0.85,
+  "note": "top/bottom only; left/right unclear",
+  "method": "edge",
   "sn": null
  },
  "copies": "1",
