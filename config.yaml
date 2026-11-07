@@ -23,8 +23,13 @@ players:
   - {name: Patrick Mahomes, sport: football,   years: 2017-, jersey: [15]}
   - {name: Josh Allen,      sport: football,   years: 2018-, jersey: [17]}
   - {name: Caleb Williams,  sport: football,   years: 2022-, jersey: [18, 13]}
-  - {name: Trinity Rodman,  sport: soccer,     years: 2021-, jersey: [2, 20, 22, 6]}
-  - {name: Linda Caicedo,   sport: soccer,     years: 2023-, jersey: [18]}
+  # title_rule (instead of the gem-rate cutoff): keep a card when its title has one of the
+  # brands AND one of the "also" words. Trinity: her USA cards only. Linda: Topps Chrome / Sapphire.
+  - {name: Trinity Rodman,  sport: soccer,     years: 2021-, jersey: [2, 20, 22, 6],
+     title_rule: {brands: [topps, panini, donruss, prizm, select, mosaic, instant, obsidian, score],
+                  also: [usa, uswnt, united states, world cup, olympic, olympics]}}
+  - {name: Linda Caicedo,   sport: soccer,     years: 2023-, jersey: [18],
+     title_rule: {brands: [topps], also: [chrome, sapphire]}}
   - {name: Cavan Sullivan,  sport: soccer,     years: 2024-, jersey: [6, 7]}
   - {name: Kylian Mbappe,   sport: soccer,     years: 2016-, jersey: [10, 9, 7, 29]}
 

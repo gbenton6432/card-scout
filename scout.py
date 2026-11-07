@@ -51,6 +51,8 @@ def _aliases(name):
         out.add(n.replace("disney100", "disney 100"))
     if " sapphire edition" in n:  # sellers often drop "Edition"
         out |= {x.replace(" sapphire edition", " sapphire") for x in list(out)}
+    if " fifa " in f" {n} ":  # sellers often leave out "FIFA"
+        out |= {re.sub(r"\bfifa ", "", x) for x in list(out)}
     # Sellers' short forms of competition names
     for full, short in (("uefa women s champions league", "uwcl"), ("uefa champions league", "ucl")):
         out |= {x.replace(full, short) for x in list(out) if full in x}
@@ -107,6 +109,8 @@ class Matcher:
         return not player["sets"] or any(name.startswith(p) for p in player["sets"])
 
     def qualifying_years(self, player):
+        if player.get("rules"):  # title rules: every year in the player's range is searched
+            return list(range(max(player["lo"], 2000), min(player["hi"], datetime.now().year) + 1))
         return sorted(y for (sp, y), sts in self.sets.items()
                       if sp == player["sport"] and player["lo"] <= y <= player["hi"]
                       and any(s["_ok"] and self.allowed(player, s) for s in sts))
@@ -114,6 +118,8 @@ class Matcher:
     def match(self, title, player):
         """(year, set dict) if the title is from a qualifying set, else None."""
         t = _norm(title)
+        if player.get("rules"):
+            return self.match_rules(t, title, player)
         for y in dict.fromkeys(int(m) for m in YEAR_RE.findall(title)):
             if not (player["lo"] <= y <= player["hi"]):
                 continue
@@ -127,6 +133,36 @@ class Matcher:
                         best, best_len = st, len(a)
             if best:
                 return (y, best) if best["_ok"] and self.allowed(player, best) else None
+        return None
+
+
+    def match_rules(self, t, title, player):
+        """Player-specific rule: the title has one brand word and one 'also' word (no gem-rate
+        cutoff). The set is GemRate's name when one matches, else e.g. 'Topps Chrome'."""
+        r = player["rules"]
+        brand = next((b for b in r["brands"] if f" {b} " in t), None)
+        also = next((a for a in r["also"] if f" {a} " in t), None)
+        if not brand or not also:
+            return None
+        for y in dict.fromkeys(int(m) for m in YEAR_RE.findall(title)):
+            if not (player["lo"] <= y <= player["hi"]):
+                continue
+            best, best_len = None, 0
+            for st in self.sets.get((player["sport"], y)) or []:
+                for a in st["_aliases"]:
+                    if a in t and len(a) > best_len:
+                        best, best_len = st, len(a)
+            if best:
+                return y, best
+            # Set name = the words between the year and the player's name, e.g.
+            # "2023 Panini Prizm Women's World Cup Trinity Rodman" -> "Panini Prizm Women's World Cup"
+            m = re.search(rf"\b{y}(?:-\d{{2,4}})?\s+(.{{3,60}}?)\s+{re.escape(player['name'].split()[0])}\b", title, re.I)
+            if m and len(m.group(1).split()) <= 8:
+                label = m.group(1).strip(" -,")
+            else:
+                fix = {"usa": "USA", "uswnt": "USWNT"}
+                label = " ".join(fix.get(w, w.title()) for w in f"{brand} {also}".split())
+            return y, {"sport": player["sport"], "year": y, "set": label, "gem_rate": None}
         return None
 
 
@@ -144,6 +180,8 @@ def players_from(cfg):
                     "jersey": [int(j) for j in (jersey if isinstance(jersey, list) else [jersey])],
                     "search": p.get("search") or p["name"],
                     "sets": [x.lower() for x in sets_only],
+                    "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
+                              "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
                     "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
     return out
 
