@@ -58,8 +58,21 @@ def check(text):
         "bid": (it.get("currentBidPrice") or {}).get("value"), "bids": it.get("bidCount"),
         "ends": it.get("itemEndDate"), "seller": seller.get("username"),
         "feedback": seller.get("feedbackScore"), "feedback_pct": seller.get("feedbackPercentage"),
-        "c": c,
+        "c": c, "copies": copies(it),
     }
+
+
+def copies(it):
+    """'1', '4', 'more than 10', or None when eBay doesn't say."""
+    if it.get("itemGroupHref") or it.get("itemGroupType"):
+        return "several (pick-your-card listing)"
+    for a in it.get("estimatedAvailabilities") or []:
+        if a.get("availabilityThresholdType") == "MORE_THAN":
+            return f"more than {a.get('availabilityThreshold')}"
+        q = a.get("estimatedAvailableQuantity") or a.get("estimatedRemainingQuantity")
+        if q:
+            return str(q)
+    return None
 
 
 def key_for(text):

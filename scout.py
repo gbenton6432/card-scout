@@ -200,6 +200,9 @@ def to_listing(it, player, year, st):
         "seller": seller.get("username", ""), "feedback": int(seller.get("feedbackScore") or 0),
         "fb_pct": float(seller["feedbackPercentage"]) if seller.get("feedbackPercentage") not in (None, "") else None,
         "card": number, "parallel": parallel,
+        # 1 = several copies for sale (a "pick your card" listing, or quantity over 1); 0 = one copy;
+        # None = not known yet (Buy It Now listings get their quantity looked up later)
+        "multi": 1 if it.get("itemGroupHref") or it.get("itemGroupType") else (0 if "AUCTION" in opts else None),
     }
 
 
@@ -403,6 +406,45 @@ def off_center(c, photos):
     return c.get("confidence", 0) >= float(photos.get("min_confidence_to_drop", 0.6)) and c.get("worst", 0) > bar
 
 
+def multi_copies(data):
+    """True when an eBay item lookup shows more than one copy for sale."""
+    for a in (data or {}).get("estimatedAvailabilities") or []:
+        if a.get("availabilityThresholdType") == "MORE_THAN":
+            return True
+        for k in ("estimatedAvailableQuantity", "estimatedRemainingQuantity"):
+            if (a.get(k) or 0) > 1:
+                return True
+    return False
+
+
+def check_quantities(store, ebay, cfg, calls):
+    """Look up how many copies each Buy It Now listing has, best candidates first:
+    PSA 10 centering, then unclear photos, newest first. Uses at most `calls` eBay calls."""
+    photos = cfg.get("photos", {})
+    bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
+    rows = store.db.execute(
+        "SELECT id FROM listings WHERE active=1 AND multi IS NULL AND auction=0 "
+        "ORDER BY CASE WHEN c IS NULL THEN 2 WHEN json_extract(c,'$.confidence') >= 0.35 "
+        "AND json_extract(c,'$.worst') <= ? THEN 0 WHEN COALESCE(json_extract(c,'$.confidence'),0) < 0.35 "
+        "THEN 1 ELSE 3 END, first_seen DESC LIMIT ?", (bar, max(0, calls))).fetchall()
+    found = done = 0
+    for r in rows:
+        try:
+            data = ebay.item(r["id"])
+        except OutOfBudget:
+            break
+        done += 1
+        if data is None:          # gone from eBay
+            store.db.execute("UPDATE listings SET active=0 WHERE id=?", (r["id"],))
+            continue
+        m = multi_copies(data)
+        found += m
+        store.db.execute("UPDATE listings SET multi=? WHERE id=?", (int(m), r["id"]))
+    store.commit()
+    left = store.db.execute("SELECT COUNT(*) FROM listings WHERE active=1 AND multi IS NULL AND auction=0").fetchone()[0]
+    print(f"Copy count checked on {done} Buy It Now listings ({found} had several copies); {left} not checked yet")
+
+
 def publish(store, cfg, scanner, run_stats):
     photos, cons = cfg.get("photos", {}), cfg.get("consigners", {})
     rows = [dict(r) for r in store.db.execute("SELECT * FROM listings WHERE active=1")]
@@ -410,6 +452,12 @@ def publish(store, cfg, scanner, run_stats):
         r["c"] = json.loads(r["c"]) if r["c"] else None
     max_per = int(cons.get("max_listings_per_seller") or 0)
     per_seller = Counter(r["seller"] for r in rows)
+    # The same seller listing the same card more than once = several copies for sale
+    def same_card(r):
+        if r["card"]:
+            return (r["seller"], r["player"], r["year"], r["set_name"], r["card"], r["parallel"] or "")
+        return (r["seller"], re.sub(r"[^a-z0-9]+", " ", (r["title"] or "").lower()).strip())
+    copies = Counter(same_card(r) for r in rows) if cons.get("drop_multiple_copies", True) else Counter()
     shown, dropped = [], Counter()
     for r in rows:
         reason = seller_reason(r["feedback"] or 0, r.get("fb_pct"), cons) or (
@@ -418,6 +466,8 @@ def publish(store, cfg, scanner, run_stats):
             dropped[reason] += 1
         elif max_per and per_seller[r["seller"]] > max_per:
             dropped["high-volume seller (listing count)"] += 1
+        elif cons.get("drop_multiple_copies", True) and (r.get("multi") == 1 or copies[same_card(r)] > 1):
+            dropped["several copies for sale"] += 1
         elif r["c"] and off_center(r["c"], photos):
             dropped["clear photo, worse than PSA 10 centering"] += 1
         else:
@@ -541,7 +591,9 @@ def main():
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)
     scanner.ensure_units()
-    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else budget_for_run(cfg, store)
+    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else max(0, budget_for_run(cfg, store) - (
+        int(cfg.get("consigners", {}).get("copy_checks_per_run", 80))
+        if cfg.get("consigners", {}).get("drop_multiple_copies", True) else 0))
     print(f"{len(scanner.players)} players, {store.db.execute('SELECT COUNT(*) FROM units').fetchone()[0]} "
           f"player-year sweeps; {ebay.budget} eBay calls for this run ({store.calls_today()} used today)")
     if "--list" in sys.argv:
@@ -559,6 +611,11 @@ def main():
 
     minutes = float(os.environ.get("MEASURE_MINUTES") or cfg.get("photos", {}).get("measure_minutes", 25))
     measure_new(store, minutes, demo, cfg.get("photos", {}).get("read_serials", True))
+    if cfg.get("consigners", {}).get("drop_multiple_copies", True):
+        ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(
+            int(cfg.get("consigners", {}).get("copy_checks_per_run", 80)),
+            budget_for_day(cfg) - store.calls_today())))
+        check_quantities(store, ebay, cfg, ebay.budget - ebay.used)
     shown = publish(store, cfg, scanner, scanner.stats)
     alerts.run(store, shown, a, demo=demo)
     store.commit()

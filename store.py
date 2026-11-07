@@ -6,7 +6,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
   id TEXT PRIMARY KEY, player TEXT, sport TEXT, year TEXT, set_name TEXT, gem REAL,
   title TEXT, url TEXT, img TEXT, n_img INTEGER, price REAL, ship REAL, auction INTEGER,
-  ends TEXT, listed TEXT, seller TEXT, feedback INTEGER, card TEXT, parallel TEXT, offers INTEGER, fb_pct REAL, bin REAL,
+  ends TEXT, listed TEXT, seller TEXT, feedback INTEGER, card TEXT, parallel TEXT, offers INTEGER, fb_pct REAL, bin REAL, multi INTEGER,
   first_seen TEXT, last_seen TEXT, active INTEGER DEFAULT 1, c TEXT, measured_at TEXT, alerted INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_player ON listings(player, active);
 CREATE INDEX IF NOT EXISTS ix_measure ON listings(active, measured_at);
@@ -29,7 +29,7 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(listings)")}
-        for col, typ in (("offers", "INTEGER"), ("fb_pct", "REAL"), ("bin", "REAL")):  # columns added after launch
+        for col, typ in (("offers", "INTEGER"), ("fb_pct", "REAL"), ("bin", "REAL"), ("multi", "INTEGER")):  # columns added after launch
             if col not in cols:
                 self.db.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
 
@@ -65,7 +65,7 @@ class Store:
         if cur.rowcount:
             return False
         cols = ["id", "player", "sport", "year", "set_name", "gem", "title", "url", "img", "n_img", "price",
-                "ship", "auction", "ends", "listed", "seller", "feedback", "card", "parallel", "offers", "fb_pct", "bin"]
+                "ship", "auction", "ends", "listed", "seller", "feedback", "card", "parallel", "offers", "fb_pct", "bin", "multi"]
         self.db.execute(
             f"INSERT INTO listings({','.join(cols)},first_seen,last_seen,active) VALUES({','.join('?' * len(cols))},?,?,1)",
             [l[c] for c in cols] + [t, t])

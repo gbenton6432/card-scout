@@ -127,4 +127,7 @@ class DemoEbay:
         return hits[offset:offset + self.PAGE] if offset < MAX_RESULTS else [], len(hits)
 
     def item(self, iid):
-        return None
+        self.used += 1
+        # card 3 stands in for a seller with several copies of the same card
+        return {"itemId": iid, "estimatedAvailabilities": [
+            {"estimatedAvailableQuantity": 4 if iid == "v1|demo3|0" else 1}]}

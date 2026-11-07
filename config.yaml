@@ -115,6 +115,10 @@ consigners:
   # eBay doesn't share how old an account is, so very low feedback stands in for
   # "new seller": under this many feedback ratings = dropped.
   min_seller_feedback: 10
+  # Skip listings with more than one copy for sale (you may not get the pictured card):
+  # "pick your card" listings, quantity over 1, or the same seller listing the same card twice.
+  drop_multiple_copies: true
+  copy_checks_per_run: 80     # eBay calls per run used to look up Buy It Now quantities
 
 # ── Photo quality rules ───────────────────────────────────────
 photos:

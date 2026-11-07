@@ -589,6 +589,7 @@ function showCheck(res) {
       <div class="pills">${serialPill(l)}${splitPill(l)}</div>
       ${readable(l) ? splits(l) : (c.note ? `<div class="sub">${esc(c.note)}</div>` : "")}
       ${breakEven(l)}
+      ${res.copies && res.copies !== "1" ? `<div><span class="pill bad">${esc(res.copies)} copies for sale</span></div>` : ""}
       <div class="sub"><span>Seller ${esc(res.seller || "")} (${(res.feedback ?? 0).toLocaleString()}${res.feedback_pct ? ", " + res.feedback_pct + "%" : ""})</span></div>
     </div>
     <div class="loupes" data-img="${esc(res.img)}" data-measured="1" data-quad='${JSON.stringify(c.quad || null)}'></div>
