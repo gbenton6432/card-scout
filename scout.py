@@ -51,6 +51,9 @@ def _aliases(name):
         out.add(n.replace("disney100", "disney 100"))
     if " sapphire edition" in n:  # sellers often drop "Edition"
         out |= {x.replace(" sapphire edition", " sapphire") for x in list(out)}
+    # Sellers' short forms of competition names
+    for full, short in (("uefa women s champions league", "uwcl"), ("uefa champions league", "ucl")):
+        out |= {x.replace(full, short) for x in list(out) if full in x}
     for full, short in (("donruss optic", "optic"), ("topps chrome update", "chrome update")):
         for x in list(out):
             if x.startswith(full):
