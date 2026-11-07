@@ -341,7 +341,7 @@ function expand(r, player) {
   return {
     id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, bin: r.b, shipping: r.s,
     auction: !!r.a, ends: r.e, first: r.f, seller: r.sl, feedback: r.fb, player, year: r.y, set: r.st, gem: r.g,
-    card: r.k, parallel: r.pr, x: r.x, listed: r.l || r.f, offers: !!r.o,
+    card: r.k, parallel: r.pr, x: r.x ?? r.xa, approx: r.x == null && r.xa != null, listed: r.l || r.f, offers: !!r.o,
     sn: r.c?.sn ? { num: r.c.sn[0], den: r.c.sn[1], conf: r.c.sn[2] } : null,
     cg: r.cg ? { rate: r.cg[0], graded: r.cg[1], psa10: r.cg[2], psa9: r.cg[3], parallel: r.cg[4] } : null,
     c: r.c ? { lr: r.c.lr, tb: r.c.tb, worst: r.c.w, confidence: r.c.cf ?? 0, quad: r.c.q, note: r.c.note } : null,
@@ -426,8 +426,10 @@ function row(l) {
   const minPhotos = INDEX.min_photos ?? 2;
   const flags = [];
   if (l.nImg < minPhotos) flags.push(`only ${l.nImg} photo${l.nImg === 1 ? "" : "s"}`);
-  const xPill = l.x == null ? "" : l.x >= 2 ? `<span class="pill bad">${l.x}× typical ask</span>`
-    : l.x <= 0.8 ? `<span class="pill good">${l.x}× typical ask</span>` : `<span class="pill">${l.x}× typical ask</span>`;
+  const xt = l.x == null ? "" : `${l.approx ? "≈" : ""}${l.x}× typical ask`;
+  const xTip = l.approx ? ` title="No card number in the title: compared with other listings of this player, year, set and parallel"` : "";
+  const xPill = l.x == null ? "" : l.x >= 2 ? `<span class="pill bad"${xTip}>${xt}</span>`
+    : l.x <= 0.8 ? `<span class="pill good"${xTip}>${xt}</span>` : `<span class="pill"${xTip}>${xt}</span>`;
   return `<article class="row${dismissed.has(l.id) ? " hidden-item" : ""}" data-id="${esc(l.id)}">
     <a class="photo" href="${esc(l.url)}" target="_blank" rel="noopener"><img loading="lazy" src="${esc((l.images[0] || "").replace("s-l1600", "s-l500"))}" alt="Front photo of ${esc(l.title)}"></a>
     <div class="info">

@@ -476,8 +476,11 @@ def publish(store, cfg, scanner, run_stats):
     # Typical asking price for the same card (same player, year, set, number, parallel)
     groups = defaultdict(list)
     for r in rows:
-        if r["card"] and not r["auction"]:  # typical ask = Buy It Now asks only, not current bids
-            groups[(r["player"], r["year"], r["set_name"], r["card"], r["parallel"])].append(r["price"] + (r["ship"] or 0))
+        if not r["auction"]:  # typical ask = Buy It Now asks only, not current bids
+            # No card number in the title: compare only with other un-numbered listings of the
+            # same player, year, set and parallel (approximate, shown with ≈)
+            groups[(r["player"], r["year"], r["set_name"], r["card"] or "~", r["parallel"])].append(
+                r["price"] + (r["ship"] or 0))
     typical = {k: statistics.median(v) for k, v in groups.items() if len(v) >= 3}
 
     cidx = load_card_rates()
@@ -485,14 +488,16 @@ def publish(store, cfg, scanner, run_stats):
     by_player = defaultdict(list)
     for r in shown:
         c = r["c"] or {}
-        t = typical.get((r["player"], r["year"], r["set_name"], r["card"], r["parallel"]))
+        t = typical.get((r["player"], r["year"], r["set_name"], r["card"] or "~", r["parallel"]))
+        ratio = round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None
         cr = card_rate(cidx, r)
         by_player[r["player"]].append({
             "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
             "p": r["price"], "b": r.get("bin"), "s": r["ship"], "a": r["auction"], "e": r["ends"], "l": r["listed"], "o": r["offers"],
             "f": r["first_seen"], "sl": r["seller"], "fb": r["feedback"], "y": r["year"],
             "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
-            "x": round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None,
+            # x = vs the same card (alerts use it); xa = approximate, for titles without a card number
+            "x": ratio if r["card"] else None, "xa": None if r["card"] else ratio,
             "cg": [cr["rate"], cr["graded"], cr["psa10"], cr["psa9"], cr["parallel"]] if cr else None,
             "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
                   "q": c.get("quad"), "note": c.get("note"), "sn": c.get("sn")} if r["c"] else None,
