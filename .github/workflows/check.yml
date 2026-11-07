@@ -4,15 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       item:
-        description: eBay item number (the digits in the listing link)
+        description: eBay item number or listing link
         required: true
 
 permissions:
-  contents: read
+  contents: write   # saves the result to the "checks" branch for the dashboard
+
+concurrency:
+  group: check-${{ inputs.item }}
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,4 +28,6 @@ jobs:
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-        run: python tools/check_item.py "${{ inputs.item }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ITEM: ${{ inputs.item }}
+        run: python tools/check_item.py "$ITEM" --save

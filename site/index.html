@@ -115,6 +115,11 @@ dialog.panel h2 { font: 800 1.3rem/1.1 var(--f-display); text-transform: upperca
 dialog.panel p { font-size: .88rem; color: var(--muted); margin: 0 0 10px; text-align: left }
 dialog.panel label { font-weight: 600; font-size: .85rem; display: block; margin-bottom: 4px }
 dialog.panel input { width: 100%; font: .9rem var(--f-data); padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink) }
+#check-result .row { grid-template-columns: 96px minmax(0,1fr); margin-top: 10px }
+#check-result .photo { width: 96px }
+#check-result .loupes { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0,1fr)) }
+#check-result .loupes canvas { width: 100%; height: auto; aspect-ratio: 1 }
+#check-result .loupes .na { width: 100%; height: auto; aspect-ratio: 4 }
 dialog.panel .status { min-height: 1.2em; margin-top: 8px; color: var(--ink) }
 dialog::backdrop { background: rgba(5,7,10,.85) }
 dialog canvas { width: min(560px, 92vw); height: auto; border-radius: 8px; display: block }
@@ -187,6 +192,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <button class="chip" id="f-star" aria-pressed="false">★ Shortlist</button>
     <button class="chip" id="f-hidden" aria-pressed="false">Show dismissed</button>
     <button class="chip" id="open-sync">Shortlist sync: off</button>
+    <button class="chip" id="open-check">Check a listing</button>
   </div>
 
   <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. Serial numbers are read from the card photo, not the title, so check the stamp in the listing before buying. Break-even is the sale price that covers your cost plus all-in grading after eBay's fee; set a target % to see the sale you'd need for that profit. Card gem rate is for that exact card and parallel, from GemRate. Tap a corner to enlarge it.</div>
@@ -205,6 +211,21 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <div class="actions">
       <button class="btn primary" id="sync-save" value="save">Save and sync</button>
       <button class="btn" id="sync-off" value="off">Turn off</button>
+      <button class="btn" value="cancel">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="check" class="panel" aria-labelledby="check-h">
+  <form method="dialog" id="check-form">
+    <h2 id="check-h">Check a listing</h2>
+    <p>Paste any eBay listing link (or item number). The scanner measures its front photo for centering and the serial number, usually in about a minute.</p>
+    <label for="check-input">eBay link or item number</label>
+    <input id="check-input" type="text" autocomplete="off" spellcheck="false" placeholder="https://ebay.io/m/… or 800858163167">
+    <p class="status" id="check-status" role="status"></p>
+    <div id="check-result"></div>
+    <div class="actions">
+      <button class="btn primary" value="go">Check it</button>
       <button class="btn" value="cancel">Close</button>
     </div>
   </form>
@@ -510,6 +531,71 @@ $("#sync-form").addEventListener("submit", e => {
   const v = e.submitter?.value;
   if (v === "save") { e.preventDefault(); sync.token = $("#sync-token").value.trim(); store.set("cs-token", sync.token); $("#sync-status").textContent = "Syncing…"; pullShortlist().then(() => { if (sync.ok) $("#sync").close() }) }
   if (v === "off") { sync.token = ""; sync.ok = false; store.set("cs-token", ""); syncLabel("Shortlist sync: off") }
+});
+
+// ── Check a listing: runs the "Check a listing" GitHub workflow and shows its result ──
+function checkKey(text) {
+  const m = text.match(/(\d{9,15})/);
+  return m ? m[1] : text.replace(/\/+$/, "").split("/").pop().split("?")[0].replace(/[^A-Za-z0-9]/g, "");
+}
+async function runCheck(text) {
+  const status = $("#check-status"), out = $("#check-result");
+  out.innerHTML = "";
+  if (!REPO) { status.textContent = "Checking works on your GitHub Pages dashboard, not in this preview."; return }
+  if (!sync.token) { status.textContent = "This needs your GitHub token. Set it up under Shortlist sync first (README, step 6), with Actions access too."; return }
+  const key = checkKey(text), started = new Date().toISOString();
+  status.textContent = "Starting the check…";
+  const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/check.yml/dispatches`, {
+    method: "POST", headers: ghHead(), body: JSON.stringify({ ref: "main", inputs: { item: text } }) });
+  if (!r.ok) {
+    status.textContent = r.status === 403 || r.status === 404
+      ? "Your GitHub token can't start checks. Edit the token and give it Actions: Read and write (README, step 6)."
+      : `GitHub didn't start the check (error ${r.status}). Try again in a minute.`;
+    return;
+  }
+  for (let i = 0; i < 40; i++) {
+    await new Promise(res => setTimeout(res, 6000));
+    status.textContent = `Measuring… (${(i + 1) * 6}s)`;
+    const g = await fetch(`https://api.github.com/repos/${REPO}/contents/checks/${key}.json?ref=checks&t=${Date.now()}`, { headers: ghHead(), cache: "no-store" });
+    if (!g.ok) continue;
+    const res = JSON.parse(decodeURIComponent(escape(atob((await g.json()).content.replace(/\n/g, "")))));
+    if ((res.checked || "") < started) continue;
+    status.textContent = "";
+    showCheck(res);
+    return;
+  }
+  status.textContent = "Still running. Check again in a minute, or see Actions → Check a listing on GitHub.";
+}
+function showCheck(res) {
+  const out = $("#check-result");
+  if (res.error) { out.innerHTML = `<p>${esc(res.error)}</p>`; return }
+  const c = res.c || {};
+  const auction = (res.options || []).includes("AUCTION");
+  const l = {
+    id: res.item, title: res.title, url: res.url, images: [res.img], price: parseFloat(auction && res.bid ? res.bid : res.price),
+    auction, c: { lr: c.lr, tb: c.tb, worst: c.worst, confidence: c.confidence ?? 0, quad: c.quad, note: c.note },
+    sn: c.sn ? { num: c.sn[0], den: c.sn[1] } : null, player: "",
+  };
+  out.innerHTML = `<div class="row">
+    <a class="photo" href="${esc(l.url)}" target="_blank" rel="noopener"><img src="${esc(res.img.replace("s-l1600", "s-l500"))}" alt="Front photo"></a>
+    <div class="info">
+      <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
+      <div class="sub"><span class="price">${money(l.price)}</span><span>${auction ? "Current bid" + (res.price && res.bid ? ` · or Buy It Now ${money(parseFloat(res.price))}` : "") : "Buy It Now"}</span></div>
+      <div class="pills">${serialPill(l)}${splitPill(l)}</div>
+      ${readable(l) ? `<div class="split"><span>${splitText(l.c.lr)}<small>left/right</small></span><span>${splitText(l.c.tb)}<small>top/bottom</small></span></div>` : (c.note ? `<div class="sub">${esc(c.note)}</div>` : "")}
+      ${breakEven(l)}
+      <div class="sub"><span>Seller ${esc(res.seller || "")} (${(res.feedback ?? 0).toLocaleString()}${res.feedback_pct ? ", " + res.feedback_pct + "%" : ""})</span></div>
+    </div>
+    <div class="loupes" data-img="${esc(res.img)}" data-measured="1" data-quad='${JSON.stringify(c.quad || null)}'></div>
+  </div>`;
+  drawLoupes(out.querySelector(".loupes"));
+}
+$("#open-check").onclick = () => { $("#check-status").textContent = ""; $("#check").showModal(); $("#check-input").focus() };
+$("#check-form").addEventListener("submit", e => {
+  if (e.submitter?.value !== "go") return;
+  e.preventDefault();
+  const text = $("#check-input").value.trim();
+  if (text) runCheck(text);
 });
 
 function boot(idx) {

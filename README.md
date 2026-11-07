@@ -62,7 +62,7 @@ Your shortlist has to live in your repo for the scanner to see it. This also mak
 1. On GitHub: **profile picture → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
 2. Name it `card-scout shortlist`. Expiration: the longest offered (you'll redo this step when it expires).
 3. **Repository access:** Only select repositories → `card-scout`.
-4. **Permissions → Repository permissions → Contents:** Read and write. Leave everything else as is.
+4. **Permissions → Repository permissions:** set **Contents** to Read and write, and **Actions** to Read and write (Actions lets the dashboard's **Check a listing** button run). Leave everything else as is.
 5. **Generate token** and copy it.
 6. Open your dashboard, tap **Shortlist sync: off**, paste the token, tap **Save and sync**.
 7. Do step 6 once on each device you use (the token stays in that browser only).
@@ -127,6 +127,10 @@ The dashboard header shows how many listings were removed each scan. If you thin
 - **Profit target:** enter a percentage (e.g. 100) on the dashboard to see the sale price you'd need for that profit on top of break-even.
 - **Price filter and sorts:** set a min and max asking price; sort by price either way or by **Newly listed**.
 - **Accepts offers:** shown on the card and available as a filter.
+
+## Check a listing
+
+Tap **Check a listing** on the dashboard, paste any eBay link (share links like ebay.io/m/… work) or item number, and the scanner measures that listing's front photo: centering, corner zooms and serial number, in about a minute. It needs the GitHub token from step 6 with Actions access. You can also run it on GitHub: **Actions → Check a listing → Run workflow**.
 
 ## Serial numbers
 
