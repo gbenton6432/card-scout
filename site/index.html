@@ -329,10 +329,11 @@ function splits(l) {
   return `<div class="split">${c.lr != null ? `<span>${splitText(c.lr)}<small>left/right</small></span>` : `<span>–<small>left/right unclear</small></span>`}${c.tb != null ? `<span>${splitText(c.tb)}<small>top/bottom</small></span>` : `<span>–<small>top/bottom unclear</small></span>`}</div>`;
 }
 function itemUrl(id, u) { const m = /^v1\|(\d+)\|/.exec(id); return m ? `https://www.ebay.com/itm/${m[1]}` : u }
-function soldUrl(l) {
+function soldUrl(l, raw) {
   const set = l.set.replace(/^Panini /, "");
   const par = l.parallel && l.parallel !== "base" ? l.parallel.replace(/\+/g, " ") : "";
-  const q = [l.year, set, l.player, l.card ? "#" + l.card : "", par, "PSA 10"].filter(Boolean).join(" ");
+  const q = [l.year, set, l.player, l.card ? "#" + l.card : "", par,
+             raw ? "-psa -bgs -sgc -cgc -graded -lot" : "PSA 10"].filter(Boolean).join(" ");
   return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}&LH_Sold=1&LH_Complete=1`;
 }
 // compact file format -> the shape the page uses
@@ -439,6 +440,7 @@ function row(l) {
       <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
       <div class="actions">
         <a class="btn primary" href="${esc(l.url)}" target="_blank" rel="noopener">View on eBay</a>
+        <a class="btn" href="${esc(soldUrl(l, true))}" target="_blank" rel="noopener">Raw sold comps</a>
         <a class="btn" href="${esc(soldUrl(l))}" target="_blank" rel="noopener">PSA 10 sold comps</a>
         <button class="btn" data-act="star" aria-pressed="${starred.has(l.id)}">${starred.has(l.id) ? "★ Shortlisted" : "☆ Shortlist"}</button>
         <button class="btn" data-act="hide">${dismissed.has(l.id) ? "Restore" : "Dismiss"}</button>
