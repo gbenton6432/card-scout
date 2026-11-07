@@ -633,6 +633,11 @@ def main():
         # measures each direction on its own: re-measure everything
         n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE measured_at IS NOT NULL").rowcount
         store.put("centering_version", 3)
+    if store.get("centering_version", 1) < 4:
+        # v4 finds cards standing on a stand / mat by their straight edges: retry the unclear ones
+        n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE c IS NOT NULL AND "
+                             "COALESCE(json_extract(c, '$.confidence'), 0) = 0").rowcount
+        store.put("centering_version", 4)
         store.commit()
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)

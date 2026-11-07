@@ -55,6 +55,158 @@ def _find_card(img):
     return best, min(1.0, best_score * 2.2)
 
 
+def _intersect(l1, l2):
+    (x1, y1, x2, y2), (x3, y3, x4, y4) = l1, l2
+    d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(d) < 1e-6:
+        return None
+    a, b = x1 * y2 - y1 * x2, x3 * y4 - y3 * x4
+    return ((a * (x3 - x4) - (x1 - x2) * b) / d, (a * (y3 - y4) - (y1 - y2) * b) / d)
+
+
+def _dist(seg, p):
+    x1, y1, x2, y2 = seg
+    return abs((y2 - y1) * p[0] - (x2 - x1) * p[1] + x2 * y1 - y2 * x1) / (np.hypot(x2 - x1, y2 - y1) + 1e-9)
+
+
+def _find_card_lines(img):
+    """Second way to find the card: long straight edges. Works when the card touches or
+    stands on something (a stand, a mat) that merges with its outline. Lines may be tilted,
+    so a card photographed at a slight angle still gives its four true corners. If one side
+    is hidden (e.g. by a stand), it is placed from the other three using the card's 2.5x3.5
+    shape and refined later by the edge search."""
+    h, w = img.shape[:2]
+    sc = min(1.0, 900 / max(h, w))
+    small = cv2.resize(img, (int(w * sc), int(h * sc))) if sc < 1 else img.copy()
+    sh, sw = small.shape[:2]
+    g = cv2.bilateralFilter(small, 9, 60, 9)  # flattens fabric / wood texture, keeps card edges
+    g = cv2.GaussianBlur(cv2.cvtColor(g, cv2.COLOR_BGR2GRAY), (7, 7), 0)
+    edges = cv2.Canny(g, 20, 60)
+    support = cv2.dilate(edges, np.ones((5, 5), np.uint8))
+    segs = cv2.HoughLinesP(edges, 1, np.pi / 360, 50, minLineLength=int(0.15 * min(sh, sw)), maxLineGap=30)
+    if segs is None:
+        return None, 0.0
+    # Group pieces of the same straight edge (a card edge is often broken by glare or a stand)
+    groups = {}
+    for x1, y1, x2, y2 in segs.reshape(-1, 4).astype(float):
+        ang = np.degrees(np.arctan2(y2 - y1, x2 - x1)) % 180
+        L = float(np.hypot(x2 - x1, y2 - y1))
+        if ang < 10 or ang > 170:
+            a_ = ang if ang < 90 else ang - 180
+            pos = y1 + (y2 - y1) * (sw / 2 - x1) / (x2 - x1 + 1e-9)
+            kind = "h"
+        elif 80 < ang < 100:
+            a_ = ang
+            pos = x1 + (x2 - x1) * (sh / 2 - y1) / (y2 - y1 + 1e-9)
+            kind = "v"
+        else:
+            continue
+        k = (kind, round(pos / 6), round(a_ / 1.5))
+        g_ = groups.setdefault(k, {"len": 0.0, "pts": [], "pos": pos})
+        g_["len"] += L
+        g_["pts"] += [(x1, y1), (x2, y2)]
+    hor, ver = [], []
+    for (kind, _, _), g_ in groups.items():
+        vx, vy, x0, y0 = cv2.fitLine(np.array(g_["pts"], np.float32), cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+        seg = (x0 - 1000 * vx, y0 - 1000 * vy, x0 + 1000 * vx, y0 + 1000 * vy)
+        (hor if kind == "h" else ver).append((g_["pos"], g_["len"], seg))
+
+    def dedupe(lines):  # the 14 best-supported lines, in position order
+        out = []
+        for pos, L, seg in sorted(lines, key=lambda t: -t[1]):
+            if all(abs(pos - p) > 6 for p, _, _ in out):
+                out.append((pos, L, seg))
+        return [seg for _, _, seg in sorted(out[:14])]
+
+    hor, ver = dedupe(hor), dedupe(ver)
+
+    def _on(a, b):
+        n = 80
+        xs = np.clip(np.linspace(a[0], b[0], n).astype(int), 0, sw - 1)
+        ys = np.clip(np.linspace(a[1], b[1], n).astype(int), 0, sh - 1)
+        return float((support[ys[8:-8], xs[8:-8]] > 0).mean())  # ends skipped: corners round or hidden
+
+    def side_support(a, b):
+        """Edge pixels on the side minus edge pixels just beside it: a real card edge is a
+        clean line; fabric, wood grain or busy artwork has edges everywhere."""
+        d = np.array(b, float) - np.array(a, float)
+        nrm = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-9) * 7
+        beside = max(_on(a + nrm, b + nrm), _on(a - nrm, b - nrm))
+        return _on(a, b) - 0.8 * beside
+
+    def shifted(seg, dx, dy):
+        x1, y1, x2, y2 = seg
+        return (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+
+    cands = []
+    H_ = hor + [None]; V_ = ver + [None]
+    for i, top in enumerate(H_):
+        for bot in H_[i + 1:] if top is not None else H_:
+            for j, left in enumerate(V_):
+                for right in V_[j + 1:] if left is not None else V_:
+                    missing = [top, bot, left, right].count(None)
+                    if missing == 0:
+                        cands.append((top, bot, left, right, None))
+                    elif missing == 1:
+                        cands.append((top, bot, left, right, [k for k, x in enumerate((top, bot, left, right)) if x is None][0]))
+    best, best_score = None, 0.0
+    for top, bot, left, right, miss in cands:
+        for shape in ((1.4, 1.0), (1.0, 1.4)) if miss is not None else ((None, None),):
+            t, b_, l, r = top, bot, left, right
+            if miss is not None:
+                # length of the side we have that runs along the missing one
+                if miss in (0, 1):
+                    known = t if t is not None else b_
+                    p1, p2 = _intersect(known, l), _intersect(known, r)
+                    if p1 is None or p2 is None:
+                        continue
+                    span = np.hypot(p2[0] - p1[0], p2[1] - p1[1]) * shape[0] / shape[1]
+                    if miss == 1:
+                        b_ = shifted(t, 0, span)
+                    else:
+                        t = shifted(b_, 0, -span)
+                else:
+                    known = l if l is not None else r
+                    p1, p2 = _intersect(t, known), _intersect(b_, known)
+                    if p1 is None or p2 is None:
+                        continue
+                    span = np.hypot(p2[0] - p1[0], p2[1] - p1[1]) * shape[1] / shape[0]
+                    if miss == 3:
+                        r = shifted(l, span, 0)
+                    else:
+                        l = shifted(r, -span, 0)
+            if miss is not None:
+                # a real line where the hidden side would be: that candidate is tried with the line
+                inferred = (t, b_, l, r)[miss]
+                mid = ((inferred[0] + inferred[2]) / 2, (inferred[1] + inferred[3]) / 2)
+                pool = hor if miss in (0, 1) else ver
+                if any(_dist(seg, mid) < 0.04 * min(sw, sh) for seg in pool):
+                    continue
+            pts = [_intersect(t, l), _intersect(t, r), _intersect(b_, r), _intersect(b_, l)]
+            if any(p is None for p in pts):
+                continue
+            q = np.array(pts, np.float32)
+            if q[:, 0].min() < -2 or q[:, 1].min() < -2 or q[:, 0].max() > sw + 2 or q[:, 1].max() > sh + 2:
+                continue
+            cw = (np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[3])) / 2
+            ch = (np.linalg.norm(q[3] - q[0]) + np.linalg.norm(q[2] - q[1])) / 2
+            if min(cw, ch) < 0.2 * min(sw, sh):
+                continue
+            ratio_fit = max(0.0, 1 - abs(max(cw, ch) / min(cw, ch) - 1.4) / 0.15)
+            if not ratio_fit:
+                continue
+            sides = [(q[0], q[1]), (q[3], q[2]), (q[0], q[3]), (q[1], q[2])]  # top, bottom, left, right
+            sup = [side_support(*sd) for k, sd in enumerate(sides) if k != miss]
+            if min(sup) < 0.35:
+                continue
+            score = cw * ch / (sw * sh) * ratio_fit * float(np.mean(sup)) * min(sup) * (0.75 if miss is not None else 1.0)
+            if score > best_score:
+                best, best_score = q / sc, score
+    if best is None:
+        return None, 0.0
+    return _order(best), min(1.0, best_score * 3.0)
+
+
 def _border(profile, lo, hi):
     """Strongest edge in profile[lo:hi]; returns (index, strength ratio)."""
     seg = profile[lo:hi]
@@ -187,6 +339,14 @@ def measure(image_bytes):
     h, w = img.shape[:2]
 
     quad, find_conf = _find_card(img)
+    hh, ww = img.shape[:2]
+    touches = quad is not None and (quad[:, 0].min() < 3 or quad[:, 1].min() < 3 or
+                                    quad[:, 0].max() > ww - 3 or quad[:, 1].max() > hh - 3)
+    if quad is None or touches:
+        # The outline merged with the background (card on a stand or mat) or is weak: try straight edges
+        q2, c2 = _find_card_lines(img)
+        if q2 is not None and (quad is None or touches or c2 > find_conf):
+            quad, find_conf = q2, max(c2, 0.3)
     if quad is None:
         return {"confidence": 0, "note": "card outline not found (glare, slab or busy background)"}
 
