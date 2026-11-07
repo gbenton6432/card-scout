@@ -338,7 +338,8 @@ def measure_new(store, minutes, demo=False, read_serials=True):
     done = 0
     while time.time() < deadline:
         rows = store.db.execute("SELECT id, img, sport FROM listings WHERE active=1 AND measured_at IS NULL "
-                                "ORDER BY first_seen DESC LIMIT 400").fetchall()
+                                "ORDER BY (c IS NOT NULL), (COALESCE(json_extract(c, '$.confidence'), 0) > 0), "
+                                "first_seen DESC LIMIT 400").fetchall()
         if not rows:
             break
         with ThreadPoolExecutor(8) as pool:
