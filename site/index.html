@@ -51,6 +51,7 @@ h1 span { color: var(--accent) }
 select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: var(--panel);
   border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; cursor: pointer }
 select { padding-right: 28px; max-width: 100% }
+[hidden] { display: none !important }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 
@@ -189,9 +190,11 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <button class="chip" id="f-offers" aria-pressed="false">Accepts offers</button>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
     <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
-    <button class="chip" id="f-star" aria-pressed="false">★ Shortlist</button>
+    <!-- Shortlist filter and sync are hidden for now; remove "hidden" to bring them back -->
+    <button class="chip" id="f-star" aria-pressed="false" hidden>★ Shortlist</button>
     <button class="chip" id="f-hidden" aria-pressed="false">Show dismissed</button>
-    <button class="chip" id="open-sync">Shortlist sync: off</button>
+    <button class="chip" id="open-sync" hidden>Shortlist sync: off</button>
+    <button class="chip" id="f-reset">↺ Reset filters</button>
     <button class="chip" id="open-check">Check a listing</button>
   </div>
 
@@ -279,8 +282,10 @@ async function pushShortlist(retry = true) {
 }
 const dismissed = new Set(store.get("cs-hide", []));
 const lastVisit = store.get("cs-lastvisit", null);
-const state = Object.assign({ player: "", year: "", set: "", type: "", sort: "center", psa: false, read: false,
-  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, target: "" }, store.get("cs-filters", {}));
+const DEFAULTS = { player: "", year: "", set: "", type: "", sort: "center", psa: false, read: false,
+  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, target: "" };
+const state = Object.assign({}, DEFAULTS, store.get("cs-filters", {}));
+state.star = false;  // shortlist filter is hidden for now
 const FACETS = ["player", "year", "set"];
 const PAGE_N = 40;
 let shownN = PAGE_N, INDEX = null;
@@ -527,6 +532,8 @@ $("#list").addEventListener("click", e => {
 });
 $("#more").onclick = () => { shownN += PAGE_N; render(false) };
 for (const k of ["psa", "read", "star", "hidden", "offers"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
+// Reset clears every filter; the sort and profit target % stay as they are
+$("#f-reset").onclick = () => { Object.assign(state, DEFAULTS, { sort: state.sort, target: state.target }); render() };
 for (const k of [...FACETS, "type", "sort", "serial"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
 let priceTimer;
 for (const k of ["min", "max", "num", "den", "target"]) $("#f-" + k).oninput = e => { state[k] = e.target.value; clearTimeout(priceTimer); priceTimer = setTimeout(render, 350) };

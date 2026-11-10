@@ -103,6 +103,14 @@ class Matcher:
             self.sets[(sport, year)].append(st)
 
     @staticmethod
+    def ok(player, st):
+        """Gem-rate check; a player's own gem_rate_min (e.g. 0) replaces the sport cutoff."""
+        if player.get("gem_min") is None:
+            return st["_ok"]
+        rate = st.get("gem_rate")
+        return rate is None or player["gem_min"] <= 0 or float(rate) >= player["gem_min"]
+
+    @staticmethod
     def allowed(player, st):
         """Brand rule: the set must start with one of the player's allowed set prefixes."""
         name = st["set"].lower()
@@ -113,7 +121,7 @@ class Matcher:
             return list(range(max(player["lo"], 2000), min(player["hi"], datetime.now().year) + 1))
         return sorted(y for (sp, y), sts in self.sets.items()
                       if sp == player["sport"] and player["lo"] <= y <= player["hi"]
-                      and any(s["_ok"] and self.allowed(player, s) for s in sts))
+                      and any(self.ok(player, s) and self.allowed(player, s) for s in sts))
 
     def match(self, title, player):
         """(year, set dict) if the title is from a qualifying set, else None."""
@@ -134,7 +142,7 @@ class Matcher:
                     if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
                         best, best_len = st, len(a)
             if best:
-                return (y, best) if best["_ok"] and self.allowed(player, best) else None
+                return (y, best) if self.ok(player, best) and self.allowed(player, best) else None
         return None
 
 
@@ -183,6 +191,7 @@ def players_from(cfg):
                     "search": p.get("search") or p["name"],
                     "sets": [x.lower() for x in sets_only],
                     "not_words": [_norm(w).strip() for w in p.get("not_words") or []],
+                    "gem_min": float(p["gem_rate_min"]) if p.get("gem_rate_min") is not None else None,
                     "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
                               "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
                     "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
