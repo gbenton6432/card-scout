@@ -118,6 +118,8 @@ class Matcher:
     def match(self, title, player):
         """(year, set dict) if the title is from a qualifying set, else None."""
         t = _norm(title)
+        if any(f" {w} " in t for w in player.get("not_words") or []):
+            return None
         if player.get("rules"):
             return self.match_rules(t, title, player)
         for y in dict.fromkeys(int(m) for m in YEAR_RE.findall(title)):
@@ -180,6 +182,7 @@ def players_from(cfg):
                     "jersey": [int(j) for j in (jersey if isinstance(jersey, list) else [jersey])],
                     "search": p.get("search") or p["name"],
                     "sets": [x.lower() for x in sets_only],
+                    "not_words": [_norm(w).strip() for w in p.get("not_words") or []],
                     "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
                               "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
                     "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
@@ -594,6 +597,27 @@ def set_output(**kv):
                 f.write(f"{k}={v}\n")
 
 
+def recheck_players(store, cfg):
+    """When the player list or set rules change, hide stored listings that no longer qualify
+    (e.g. college cards after a player is limited to pro cards)."""
+    import hashlib
+    key = hashlib.sha1(json.dumps([cfg.get("players"), cfg.get("gem_rate_min"), cfg.get("gem_rate_min_by_sport"),
+                                   cfg.get("set_brands"), cfg.get("sets")], sort_keys=True, default=str).encode()).hexdigest()
+    if store.get("players_key") == key:
+        return
+    m = Matcher(cfg)
+    players = {p["name"]: p for p in players_from(cfg)}
+    gone = []
+    for r in store.db.execute("SELECT id, player, title FROM listings WHERE active=1"):
+        p = players.get(r["player"])
+        if p is None or m.match(r["title"], p) is None:
+            gone.append((r["id"],))
+    store.db.executemany("UPDATE listings SET active=0 WHERE id=?", gone)
+    store.put("players_key", key)
+    store.commit()
+    print(f"Settings changed: {len(gone)} stored listings no longer qualify and were hidden")
+
+
 def main():
     cfg = yaml.safe_load(open(os.path.join(HERE, "config.yaml")))
     demo = "--demo" in sys.argv or "--demo-scale" in sys.argv
@@ -627,6 +651,7 @@ def main():
     if demo and os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
         set_output(ran="false")
         return
+    recheck_players(store, cfg)
     # When the centering method improves, re-measure the readings it would change
     if store.get("centering_version", 1) < 3:
         # v3 finds the real card edge when the outline found was the border's frame line, and

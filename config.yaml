@@ -22,7 +22,10 @@ players:
   - {name: Stephen Curry,   sport: basketball, years: 2009-, jersey: [30]}
   - {name: Patrick Mahomes, sport: football,   years: 2017-, jersey: [15]}
   - {name: Josh Allen,      sport: football,   years: 2018-, jersey: [17]}
-  - {name: Caleb Williams,  sport: football,   years: 2022-, jersey: [18, 13]}
+  # Caleb: pro (Bears) cards only. not_words: titles with any of these are skipped (college cards).
+  - {name: Caleb Williams,  sport: football,   years: 2024-, jersey: [18],
+     not_words: [usc, trojans, oklahoma, sooners, college, university, ncaa, bowman u, chrome u,
+                 draft picks, prizm draft, bowman draft, contenders draft, chronicles draft, leaf, nil]}
   # title_rule (instead of the gem-rate cutoff): keep a card when its title has one of the
   # brands AND one of the "also" words. Trinity: her USA cards only. Linda: Topps Chrome / Sapphire.
   - {name: Trinity Rodman,  sport: soccer,     years: 2021-, jersey: [2, 20, 22, 6],
