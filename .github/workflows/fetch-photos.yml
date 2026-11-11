@@ -1,0 +1,36 @@
+name: Fetch test photos
+
+on:
+  workflow_dispatch:
+    inputs:
+      dest:
+        description: path on the checks branch (e.g. refs/test.zip)
+        required: true
+      specs:
+        description: 'searches, separated by ";;" — each "name|graded|query" or "name|raw|query"'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Download photos
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEST: ${{ inputs.dest }}
+          SPECS: ${{ inputs.specs }}
+        run: |
+          IFS=$'\n' read -r -d '' -a ARGS < <(printf '%s' "$SPECS" | sed 's/;;/\n/g'; printf '\0') || true
+          python tools/fetch_photos.py "$DEST" "${ARGS[@]}"
