@@ -115,16 +115,23 @@ class Matcher:
 
     @staticmethod
     def allowed(player, st):
-        """Brand rule: the set must start with one of the player's allowed set prefixes."""
+        """Brand rule: the set must start with one of the player's allowed set prefixes
+        (or one of a no_cutoff entry's brands for that year)."""
         name = st["set"].lower()
+        for lo, hi, prefixes in player.get("open") or []:
+            if lo <= int(str(st["year"])[:4]) <= hi and name.startswith(prefixes):
+                return True
         return not player["sets"] or any(name.startswith(p) for p in player["sets"])
 
     def qualifying_years(self, player):
         if player.get("rules"):  # title rules: every year in the player's range is searched
             return list(range(max(player["lo"], 2000), min(player["hi"], datetime.now().year) + 1))
-        return sorted(y for (sp, y), sts in self.sets.items()
-                      if sp == player["sport"] and player["lo"] <= y <= player["hi"]
-                      and any(self.ok(player, s) and self.allowed(player, s) for s in sts))
+        years = {y for (sp, y), sts in self.sets.items()
+                 if sp == player["sport"] and player["lo"] <= y <= player["hi"]
+                 and any(self.ok(player, s) and self.allowed(player, s) for s in sts)}
+        for lo, hi, _ in player.get("open") or []:  # no_cutoff years are always searched
+            years |= {y for y in range(max(lo, player["lo"]), min(hi, player["hi"], datetime.now().year) + 1)}
+        return sorted(years)
 
     def match(self, title, player):
         """(year, set dict) if the title is from a qualifying set, else None."""
@@ -137,16 +144,29 @@ class Matcher:
             if not (player["lo"] <= y <= player["hi"]):
                 continue
             sets = self.sets.get((player["sport"], y))
-            if not sets:
-                continue
             best, best_len = None, 0
-            for st in sets:
+            for st in sets or []:
                 for a in st["_aliases"]:
                     if a in t and len(a) > best_len and not any(_norm(w) in t for w in st.get("exclude") or []):
                         best, best_len = st, len(a)
+            if best and self.ok(player, best) and self.allowed(player, best):
+                return y, best
+            # no_cutoff year: any card from those brands counts, even a set GemRate doesn't list
+            for lo, hi, prefixes in player.get("open") or []:
+                if lo <= y <= hi and (best is None or best["set"].lower().startswith(prefixes)):
+                    brand = next((b for b in prefixes if f" {b} " in t), None)
+                    if brand:
+                        return y, {"sport": player["sport"], "year": y, "gem_rate": None,
+                                   "set": self.title_set(title, y, player, brand.title())}
             if best:
-                return (y, best) if self.ok(player, best) and self.allowed(player, best) else None
+                return None
         return None
+
+    @staticmethod
+    def title_set(title, y, player, fallback):
+        """Set name from the title: the words between the year and the player's first name."""
+        m = re.search(rf"\b{y}(?:-\d{{2,4}})?\s+(.{{3,60}}?)\s+{re.escape(player['name'].split()[0])}\b", title, re.I)
+        return m.group(1).strip(" -,") if m and len(m.group(1).split()) <= 8 else fallback
 
 
     def match_rules(self, t, title, player):
@@ -192,11 +212,12 @@ def players_from(cfg):
         out.append({"name": p["name"], "sport": sport, "lo": lo, "hi": hi,
                     "jersey": [int(j) for j in (jersey if isinstance(jersey, list) else [jersey])],
                     "search": p.get("search") or p["name"],
+                    **{k: float(p[k]) for k in ("min_price", "max_price") if p.get(k) is not None},
                     "sets": [x.lower() for x in sets_only],
                     "not_words": [_norm(w).strip() for w in p.get("not_words") or []],
                     "gem_min": float(p["gem_rate_min"]) if p.get("gem_rate_min") is not None else None,
                     # no_cutoff: [{years: 2024, brands: [Panini, ...]}] = those sets skip the gem-rate cutoff
-                    "open": [(*_years(o["years"]), tuple(b.lower() for b in o["brands"]))
+                    "open": [(*_years(o["years"]), tuple(_norm(b).strip() for b in o["brands"]))
                              for o in p.get("no_cutoff") or []],
                     "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
                               "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
@@ -287,12 +308,16 @@ class Scanner:
             if self.store.upsert(to_listing(it, player, *m)):
                 self.stats["new listings"] += 1
 
+    def price_range(self, p):
+        """A player's own min_price / max_price, else the defaults."""
+        return (p.get("min_price", self.d.get("min_price")), p.get("max_price", self.d.get("max_price")))
+
     # 1. New listings
     def new_listings(self, max_pages=3):
         for p in self.players:
             for page in range(max_pages):
                 items, _ = self.ebay.search(f"{p['search']} {self.neg}", p["category"], self.d, self.cons,
-                                            self.d.get("min_price"), self.d.get("max_price"), offset=page * PAGE)
+                                            *self.price_range(p), offset=page * PAGE)
                 seen_before = sum(1 for it in items if self.store.known(it.get("itemId")))
                 self.ingest(items, p)
                 if seen_before or len(items) < PAGE:
@@ -306,10 +331,20 @@ class Scanner:
             for y in self.matcher.qualifying_years(p):
                 want.add((p["name"], str(y)))
         have = {(r["player"], r["year"]) for r in self.store.db.execute("SELECT player, year FROM units")}
-        lo, hi = self.d.get("min_price"), self.d.get("max_price")
+        by_name = {p["name"]: p for p in self.players}
         for player, year in want - have:
+            lo, hi = self.price_range(by_name[player])
             self.store.db.execute("INSERT INTO units(key,player,year,lo,hi) VALUES(?,?,?,?,?)",
                                   (f"{player}|{year}|{lo}|{hi}", player, year, lo, hi))
+        # a player's price limits changed: restart those sweeps with the new range
+        for r in self.store.db.execute("SELECT key, player, year, lo, hi FROM units").fetchall():
+            p = by_name.get(r["player"])
+            if p and (r["player"], r["year"]) in want:
+                lo, hi = self.price_range(p)
+                if (r["lo"], r["hi"]) != (lo, hi):
+                    self.store.db.execute("UPDATE units SET key=?, lo=?, hi=?, next_offset=0, total=NULL, "
+                                          "started=NULL, finished=NULL WHERE key=?",
+                                          (f"{r['player']}|{r['year']}|{lo}|{hi}", lo, hi, r["key"]))
         for player, year in have - want:  # player removed or set no longer qualifies
             self.store.db.execute("DELETE FROM units WHERE player=? AND year=?", (player, year))
         self.store.commit()

@@ -84,6 +84,9 @@ select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible {
   color: var(--muted); font-size: .75rem; display: grid; place-items: center; text-align: center; padding: 12px }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px }
+.fb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted) }
+.fb button { font: 600 .75rem var(--f-body); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer }
+.fb button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 .btn { font: 600 .8rem var(--f-body); border-radius: 6px; padding: 7px 12px; border: 1px solid var(--line);
   background: transparent; color: var(--ink); cursor: pointer; text-decoration: none }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel) }
@@ -451,6 +454,7 @@ function row(l) {
       <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Current bid · " + rel(l.ends) : "Buy It Now"}</span>${l.bin ? `<span>or Buy It Now ${money(l.bin)}</span>` : ""}${l.offers ? "<span>Accepts offers</span>" : ""}<span>Listed ${ago(l.listed)}</span></div>
       <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${serialPill(l)}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
       ${readable(l) ? splits(l) : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
+      ${l.c ? feedbackRow(l) : ""}
       ${breakEven(l)}
       <div class="rates"><span>Set gem rate <b>${l.gem != null ? l.gem + "%" : "–"}</b></span><span>${l.cg ? `Card gem rate <b>${l.cg.rate}%</b> (${l.cg.graded.toLocaleString()} graded${l.cg.parallel && l.cg.parallel !== "Base" ? ", " + esc(l.cg.parallel) : ""})` : "Card gem rate <b>–</b>"}</span>${l.cg ? `<span>PSA 10 pop <b>${l.cg.psa10.toLocaleString()}</b></span>` : ""}</div>
       <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
@@ -570,6 +574,48 @@ function checkKey(text) {
   const m = text.match(/(\d{9,15})/);
   return m ? m[1] : text.replace(/\/+$/, "").split("/").pop().split("?")[0].replace(/[^A-Za-z0-9]/g, "");
 }
+// ── Reading feedback: each verdict is saved to feedback/<id>.json on the repo's "checks" branch,
+//    where the scanner's tuning reads them ──
+const fbDone = new Map(Object.entries(store.get("cs-fb", {})));
+const FB_REASONS = { outline: "Outline / corners off", number: "Number off", unclear: "Should be unclear", measure: "Should measure" };
+function feedbackRow(l) {
+  const v = fbDone.get(l.id), open = v === "bad-open";
+  const reasons = Object.entries(FB_REASONS).map(([k, t]) =>
+    `<button data-fb="bad:${k}" aria-pressed="${v === "bad:" + k}">${t}</button>`).join("");
+  return `<div class="fb" data-fbid="${esc(l.id)}"><span>Reading:</span>
+    <button data-fb="ok" aria-pressed="${v === "ok"}">✓ Right</button>
+    <button data-fb="bad" aria-pressed="${!!(v && v.startsWith("bad"))}">✗ Wrong</button>
+    ${open || (v && v.startsWith("bad:")) ? reasons : ""}<span class="fb-msg"></span></div>`;
+}
+async function sendFeedback(l, verdict, msgEl) {
+  if (!REPO) { msgEl.textContent = "Saved here only (preview)."; return true }
+  if (!sync.token) { msgEl.textContent = "Needs your GitHub token."; $("#sync-token").value = ""; $("#sync").showModal(); return false }
+  const path = `feedback/${l.id.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
+  const url = `https://api.github.com/repos/${REPO}/contents/${path}`;
+  const body = { id: l.id, verdict, title: l.title, url: l.url, image: l.images[0] || "", reading: l.c,
+                 player: l.player, set: `${l.year} ${l.set}`, at: new Date().toISOString() };
+  try {
+    const old = await fetch(url + "?ref=checks", { headers: ghHead() });
+    const sha = old.ok ? (await old.json()).sha : undefined;
+    const r = await fetch(url, { method: "PUT", headers: ghHead(), body: JSON.stringify({
+      message: `Reading feedback: ${verdict}`, branch: "checks", sha,
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(body, null, 1)))) }) });
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "token can't write to the repo" : `GitHub error ${r.status}`);
+    msgEl.textContent = "Saved, thanks"; return true;
+  } catch (e) { msgEl.textContent = `Not saved: ${e.message}`; return false }
+}
+$("#list").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-fb]"); if (!b) return;
+  const row = b.closest(".fb"), id = row.dataset.fbid, v = b.dataset.fb;
+  const l = listings().find(x => x.id === id); if (!l) return;
+  if (v === "bad") { fbDone.set(id, "bad-open"); row.outerHTML = feedbackRow(l); return }  // pick what's wrong
+  fbDone.set(id, v); store.set("cs-fb", Object.fromEntries([...fbDone].filter(([, x]) => x !== "bad-open")));
+  const fresh = document.createElement("div"); fresh.innerHTML = feedbackRow(l); row.replaceWith(fresh.firstElementChild);
+  const msg = document.querySelector(`.fb[data-fbid="${CSS.escape(id)}"] .fb-msg`);
+  msg.textContent = "Saving…";
+  await sendFeedback(l, v, msg);
+});
+
 async function runCheck(text) {
   const status = $("#check-status"), out = $("#check-result");
   out.innerHTML = "";

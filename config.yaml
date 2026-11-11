@@ -18,7 +18,16 @@ players:
   # jersey: the player's number(s), for jersey-match serials (e.g. 99/99 for Judge)
   - {name: Shohei Ohtani,   sport: baseball,   years: 2018-, jersey: [17]}
   - {name: Aaron Judge,     sport: baseball,   years: 2017-, jersey: [99]}
-  - {name: LeBron James,    sport: basketball, years: 2003-, jersey: [23, 6]}
+  # LeBron: his key years are searched with no gem-rate cutoff (rookie year, first Prizm,
+  # first Lakers year, 2020-21 Prizm, first Topps Chrome since 2009, first 76ers cards).
+  # 2003 includes Upper Deck / Exquisite rookies.
+  - {name: LeBron James,    sport: basketball, years: 2003-, jersey: [23, 6], max_price: 5000,
+     no_cutoff: [{years: 2003, brands: [Topps, Bowman, Finest, Upper Deck, Exquisite]},
+                 {years: 2012, brands: [Panini, Prizm, Donruss, Optic, Select, Hoops]},
+                 {years: 2018, brands: [Panini, Prizm, Donruss, Optic, Select, Mosaic, Hoops]},
+                 {years: 2020, brands: [Panini, Prizm, Donruss, Optic, Select, Mosaic, Hoops]},
+                 {years: 2025, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Optic]},
+                 {years: 2026, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Optic]}]}
   - {name: Stephen Curry,   sport: basketball, years: 2009-, jersey: [30]}
   - {name: Patrick Mahomes, sport: football,   years: 2017-, jersey: [15]}
   - {name: Josh Allen,      sport: football,   years: 2018-, jersey: [17]}
