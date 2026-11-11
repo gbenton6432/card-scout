@@ -21,7 +21,7 @@ GRADED, UNGRADED = 2750, 4000
 def fetch(ebay, kind, q, n=12):
     cond = GRADED if kind == "graded" else UNGRADED
     j = ebay._get("/buy/browse/v1/item_summary/search", {
-        "q": q, "filter": f"conditionIds:{{{cond}}}", "limit": 100, "category_ids": "261328,183050,183454"}) or {}
+        "q": q, "filter": f"conditionIds:{{{cond}}}", "limit": 100, "category_ids": "261328"}) or {}
     out = []
     for it in j.get("itemSummaries", []):
         t = it.get("title", "")
