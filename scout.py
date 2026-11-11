@@ -678,6 +678,11 @@ def main():
         n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE c IS NOT NULL AND "
                              "COALESCE(json_extract(c, '$.confidence'), 0) = 0").rowcount
         store.put("centering_version", 4)
+    if store.get("centering_version", 1) < 5:
+        # v5 finds the card outline far more reliably (inner frames, stands, slabs, cards filling
+        # the photo), which also fixes the corner close-ups: re-measure everything
+        n = store.db.execute("UPDATE listings SET measured_at=NULL WHERE measured_at IS NOT NULL").rowcount
+        store.put("centering_version", 5)
         store.commit()
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)

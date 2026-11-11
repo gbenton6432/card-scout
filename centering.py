@@ -10,6 +10,8 @@ measure(image_bytes) -> dict with:
   confidence  0-1, how sure the measurement is
   note        why confidence is low, if it is
 """
+import itertools
+
 import cv2
 import numpy as np
 
@@ -207,6 +209,190 @@ def _find_card_lines(img):
     return _order(best), min(1.0, best_score * 3.0)
 
 
+# ── Card outline v2 ──
+def _grad(img):
+    g = cv2.GaussianBlur(img, (0, 0), 1.5).astype(np.float32)
+    gx = np.max(np.abs(cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)), axis=2)
+    gy = np.max(np.abs(cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)), axis=2)
+    return gx, gy
+
+class Scorer:
+    def __init__(self, img):
+        self.h, self.w = img.shape[:2]
+        self.gx, self.gy = _grad(img)
+        self.norm = float(np.percentile(np.hypot(self.gx, self.gy), 75)) + 1e-3
+
+    def _along(self, a, b, off, n=60):
+        """|gradient across the side| at points along a->b, shifted `off` px along the inward normal."""
+        d = b - a; L = np.hypot(*d) + 1e-9; t = d / L; nrm = np.array([-t[1], t[0]])
+        u = np.linspace(.1, .9, n)[:, None]
+        P = a + u * d + off * nrm
+        best = np.zeros(n, np.float32)
+        for dd in (-1.5, 0, 1.5):  # allow the edge to sit a pixel or so off the line
+            Q = (P + dd * nrm).astype(np.float32)
+            gx = cv2.remap(self.gx, Q[:, 0:1], Q[:, 1:2], cv2.INTER_LINEAR).ravel()
+            gy = cv2.remap(self.gy, Q[:, 0:1], Q[:, 1:2], cv2.INTER_LINEAR).ravel()
+            best = np.maximum(best, np.abs(gx * nrm[0]) + np.abs(gy * nrm[1]))
+        return best
+
+    def side(self, a, b, center):
+        d = b - a; L = np.hypot(*d) + 1e-9; nrm = np.array([-d[1], d[0]]) / L
+        if np.dot(center - (a + b) / 2, nrm) < 0: nrm = -nrm  # point inward
+        a2, b2 = a, b
+        def at(off):
+            dd = b2 - a2; t = dd / (np.hypot(*dd) + 1e-9); n_ = np.array([-t[1], t[0]])
+            sgn = 1 if np.dot(n_, nrm) > 0 else -1
+            return self._along(a2, b2, off * sgn)
+        on = np.percentile(at(0), 55)
+        gap = max(4.0, .02 * min(self.w, self.h))
+        beside = min(np.percentile(at(gap), 55), np.percentile(at(-gap), 55))  # texture: busy on both sides
+        return (on - 0.7 * beside) / self.norm
+
+    def score(self, q):
+        q = np.asarray(q, np.float32)
+        cw = (np.linalg.norm(q[1] - q[0]) + np.linalg.norm(q[2] - q[3])) / 2
+        ch = (np.linalg.norm(q[3] - q[0]) + np.linalg.norm(q[2] - q[1])) / 2
+        if min(cw, ch) < .12 * min(self.w, self.h): return 0, None
+        r = max(cw, ch) / min(cw, ch)
+        fit = float(np.exp(-((r - 1.4) / .05) ** 2))
+        if fit < .05: return 0, None
+        # opposite sides should be near parallel (mild perspective only)
+        c = q.mean(0)
+        sides = [self.side(q[k], q[(k + 1) % 4], c) for k in range(4)]
+        s = np.clip(sides, 0, None)
+        if s.min() < 2.0: return 0, None
+        area = cw * ch / (self.w * self.h)
+        return fit * float(np.prod(np.minimum(s, 12)) ** .25) * area ** .75, sides
+
+def refine(sc, q, span=.025, steps=13):
+    """Move each side in/out to sit exactly on the strongest edge: a coarse search, then a
+    fine one around it (about a third of a pixel), so borders are measured accurately."""
+    q = np.asarray(q, np.float32).copy()
+    dim = min(sc.w, sc.h)
+    for sp, n in ((span, steps), (2.5 / dim, 21), (.8 / dim, 17)):
+        c = q.mean(0)
+        sides = []
+        for k in range(4):
+            a, b = q[k], q[(k + 1) % 4]
+            d = b - a; nrm = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-9)
+            if np.dot(c - (a + b) / 2, nrm) < 0: nrm = -nrm
+            offs = np.linspace(-sp, sp, n) * dim
+            v = np.array([np.mean(sc._along(a + o * nrm, b + o * nrm, 0)) for o in offs])
+            i = int(np.argmax(v)); o = offs[i]
+            if 0 < i < n - 1:  # parabola through the peak for a sub-step position
+                den = v[i - 1] - 2 * v[i] + v[i + 1]
+                if den < 0: o += 0.5 * (v[i - 1] - v[i + 1]) / den * (offs[1] - offs[0])
+            sides.append((a + o * nrm, b + o * nrm))
+        e = _corners(sides)
+        if e is None: break
+        q = e
+    return q
+
+
+def candidates(img):
+    h, w = img.shape[:2]; out = []
+    gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    bil = cv2.GaussianBlur(cv2.cvtColor(cv2.bilateralFilter(img, 9, 60, 9), cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    for src in (gray, bil):
+        for lo, hi in ((15, 50), (30, 90), (60, 160)):
+            e0 = cv2.Canny(src, lo, hi)
+            for it in (1, 2):
+                e = cv2.dilate(e0, np.ones((3, 3), np.uint8), iterations=it)
+                cnts, _ = cv2.findContours(e, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                for c in cnts:
+                    if cv2.contourArea(c) < .03 * w * h: continue
+                    peri = cv2.arcLength(c, True)
+                    for eps in (.02, .04):
+                        ap = cv2.approxPolyDP(c, eps * peri, True)
+                        if len(ap) == 4 and cv2.isContourConvex(ap):
+                            out.append(_order(ap.reshape(4, 2).astype(np.float32)))
+                    out.append(_order(cv2.boxPoints(cv2.minAreaRect(c)).astype(np.float32)))
+    return out
+
+def _shift_side(q, k, off):
+    q = q.copy(); c = q.mean(0); a, b = q[k], q[(k + 1) % 4]
+    d = b - a; nrm = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-9)
+    if np.dot(c - (a + b) / 2, nrm) < 0: nrm = -nrm
+    q[k] = a - off * nrm; q[(k + 1) % 4] = b - off * nrm   # + off = outward
+    return q
+
+def _corners(q_sides):
+    out = []
+    for k in range(4):
+        l1, l2 = q_sides[(k - 1) % 4], q_sides[k]
+        p = _intersect((*l1[0], *l1[1]), (*l2[0], *l2[1]))
+        out.append(p)
+    return None if any(p is None for p in out) else np.float32(out)
+
+def expand(sc, q):
+    """The outline found may be a frame line inside the border. Look outward on each side
+    for the next straight edge; keep the expansion that still makes a card-shaped outline."""
+    q = np.asarray(q, np.float32); base, sides = sc.score(q)
+    if not base: return q
+    dim = min(sc.w, sc.h); c = q.mean(0)
+    opts = []
+    for k in range(4):
+        a, b = q[k], q[(k + 1) % 4]
+        d = b - a; nrm = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-9)
+        if np.dot(c - (a + b) / 2, nrm) < 0: nrm = -nrm
+        offs = np.arange(.006, .12, .002) * dim
+        v = np.array([np.percentile(sc._along(a - o * nrm, b - o * nrm, 0), 55) for o in offs])
+        pk = [i for i in range(1, len(v) - 1) if v[i] >= v[i - 1] and v[i] >= v[i + 1] and v[i] > .35 * sc.norm]
+        opts.append([0.0] + [float(offs[i]) for i in pk[:2]])
+    best, bs = q, base * 1.0
+    for combo in itertools.product(*opts):
+        if not any(combo): continue
+        sides = []
+        for k in range(4):
+            a, b = q[k], q[(k + 1) % 4]
+            d = b - a; nrm = np.array([-d[1], d[0]]) / (np.hypot(*d) + 1e-9)
+            if np.dot(c - (a + b) / 2, nrm) < 0: nrm = -nrm
+            sides.append((a - combo[k] * nrm, b - combo[k] * nrm))
+        e = _corners(sides)
+        if e is None: continue
+        s2, sd2 = sc.score(e)
+        if not s2 or min(sd2) < 2.5: continue
+        cw = (np.linalg.norm(e[1] - e[0]) + np.linalg.norm(e[2] - e[3])) / 2
+        ch = (np.linalg.norm(e[3] - e[0]) + np.linalg.norm(e[2] - e[1])) / 2
+        r = max(cw, ch) / min(cw, ch)
+        if abs(r - 1.4) > .05: continue
+        # bigger outline that still looks like a card wins unless clearly weaker
+        if cv2.contourArea(e) > cv2.contourArea(best):
+            best, bs = e, s2
+    return best
+
+def _find_card_v2(img):
+    """Card outline v2: many candidate outlines (contours, straight edges, the photo frame),
+    each snapped to the strongest nearby edge and scored on card shape (2.5x3.5), four clean
+    straight sides and size; then widened if a frame line inside the border was found."""
+    sc = Scorer(img)
+    cands = candidates(img)
+    q2, _ = _find_card_lines(img)
+    if q2 is not None: cands.append(q2)
+    # card filling most of the photo: start from the photo's own frame and snap inward
+    for inset in (.01, .04):
+        fr = np.float32([[inset * sc.w, inset * sc.h], [(1 - inset) * sc.w, inset * sc.h],
+                         [(1 - inset) * sc.w, (1 - inset) * sc.h], [inset * sc.w, (1 - inset) * sc.h]])
+        cands.append(refine(sc, fr, span=.06, steps=31))
+    # dedupe near-identical candidates
+    uniq = []
+    for q in cands:
+        if all(np.abs(q - u).max() > .01 * max(sc.w, sc.h) for u in uniq): uniq.append(q)
+    scored = []
+    for q in uniq:
+        s, _ = sc.score(q)
+        if s > 0: scored.append((s, q))
+    scored.sort(key=lambda t: -t[0])
+    best, bs = None, 0
+    for s, q in scored[:8]:          # refine the most promising, then rescore
+        r = refine(sc, q)
+        s2, _ = sc.score(r)
+        if s2 > bs: best, bs = r, s2
+    if best is not None:
+        best = expand(sc, best)
+    return best, bs
+
+
 def _border(profile, lo, hi):
     """Strongest edge in profile[lo:hi]; returns (index, strength ratio)."""
     seg = profile[lo:hi]
@@ -338,11 +524,15 @@ def measure(image_bytes):
         img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     h, w = img.shape[:2]
 
-    quad, find_conf = _find_card(img)
+    q_v2, s_v2 = _find_card_v2(img)
+    if q_v2 is not None:
+        quad, find_conf = q_v2, float(min(1.0, 0.3 + s_v2 / 4))
+    else:
+        quad, find_conf = _find_card(img)
     hh, ww = img.shape[:2]
     touches = quad is not None and (quad[:, 0].min() < 3 or quad[:, 1].min() < 3 or
                                     quad[:, 0].max() > ww - 3 or quad[:, 1].max() > hh - 3)
-    if quad is None or touches:
+    if q_v2 is None and (quad is None or touches):
         # The outline merged with the background (card on a stand or mat) or is weak: try straight edges
         q2, c2 = _find_card_lines(img)
         if q2 is not None and (quad is None or touches or c2 > find_conf):
@@ -365,10 +555,10 @@ def measure(image_bytes):
     #    background has a faint edge). If a consistent card edge sits just outside it on both
     #    sides of an axis, widen the outline to the real card edge on those sides.
     outer, M, (ex, ey) = _outer_edges(img, quad, tw, th)
-    card_quad, method = quad, "edge"
+    card_quad, method = quad, ("outline" if q_v2 is not None else "edge")
     grow = {k: 0 for k in "lrtb"}
     for a, b in (("l", "r"), ("t", "b")):
-        if outer[a][1] and outer[b][1]:
+        if q_v2 is None and outer[a][1] and outer[b][1]:  # v2 already widens frame-line outlines
             grow[a], grow[b] = outer[a][0], outer[b][0]
     if any(grow.values()):
         method = "frame"
