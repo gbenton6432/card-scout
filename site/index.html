@@ -176,6 +176,9 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <span aria-hidden="true">/</span>
       <input id="f-den" type="number" inputmode="numeric" min="1" placeholder="of" aria-label="Print run (denominator)">
     </div>
+    <div class="serial target" role="group" aria-label="Numbered to at most" title="Only cards numbered to this or lower (e.g. 99 = /99, /50, /25…). Remembered for each player; under All players, each player's own number is used.">
+      <label for="f-upto">Numbered to ≤</label><input id="f-upto" type="number" inputmode="numeric" min="1" placeholder="any">
+    </div>
     <select id="f-serial" aria-label="Serial type">
       <option value="">Any serial</option>
       <option value="numbered">Numbered only</option>
@@ -283,9 +286,10 @@ async function pushShortlist(retry = true) {
 const dismissed = new Set(store.get("cs-hide", []));
 const lastVisit = store.get("cs-lastvisit", null);
 const DEFAULTS = { player: "", year: "", set: "", type: "", sort: "center", psa: false, read: false,
-  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, target: "" };
+  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, target: "", uptoBy: {} };
 const state = Object.assign({}, DEFAULTS, store.get("cs-filters", {}));
-state.star = false;  // shortlist filter is hidden for now
+state.star = false;
+state.uptoBy = Object.assign({}, state.uptoBy);  // "numbered to ≤" per player ("" = All players)  // shortlist filter is hidden for now
 const FACETS = ["player", "year", "set"];
 const PAGE_N = 40;
 let shownN = PAGE_N, INDEX = null;
@@ -379,10 +383,15 @@ async function render(resetPaging = true) {
   for (const k of ["type", "sort", "min", "max", "num", "den", "serial", "target"]) $("#f-" + k).value = state[k];
   const min = parseFloat(state.min), max = parseFloat(state.max);
   const num = parseInt(state.num), den = parseInt(state.den);
+  $("#f-upto").value = state.uptoBy[state.player] ?? "";
+  // a player's own limit wins; otherwise the All-players one
+  const upto = l => parseInt(state.uptoBy[l.player] ?? (state.player ? "" : state.uptoBy[""]));
   const jerseys = new Map(INDEX.players.map(p => [p.name, p.jersey || []]));
   const serialOk = l => {
     const sn = l.sn;
-    if ((!isNaN(num) || !isNaN(den) || state.serial) && !sn) return false;
+    const lim = upto(l);
+    if ((!isNaN(num) || !isNaN(den) || !isNaN(lim) || state.serial) && !sn) return false;
+    if (!isNaN(lim) && sn.den > lim) return false;
     if (!isNaN(num) && sn.num !== num) return false;
     if (!isNaN(den) && sn.den !== den) return false;
     switch (state.serial) {
@@ -533,7 +542,14 @@ $("#list").addEventListener("click", e => {
 $("#more").onclick = () => { shownN += PAGE_N; render(false) };
 for (const k of ["psa", "read", "star", "hidden", "offers"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
 // Reset clears every filter; the sort and profit target % stay as they are
-$("#f-reset").onclick = () => { Object.assign(state, DEFAULTS, { sort: state.sort, target: state.target }); render() };
+$("#f-reset").onclick = () => {
+  Object.assign(state, DEFAULTS, { sort: state.sort, target: state.target, uptoBy: {} }); render();
+};
+$("#f-upto").oninput = e => {
+  const v = e.target.value.trim();
+  if (v) state.uptoBy[state.player] = v; else delete state.uptoBy[state.player];
+  clearTimeout(priceTimer); priceTimer = setTimeout(render, 350);
+};
 for (const k of [...FACETS, "type", "sort", "serial"]) $("#f-" + k).onchange = e => { state[k] = e.target.value; render() };
 let priceTimer;
 for (const k of ["min", "max", "num", "den", "target"]) $("#f-" + k).oninput = e => { state[k] = e.target.value; clearTimeout(priceTimer); priceTimer = setTimeout(render, 350) };

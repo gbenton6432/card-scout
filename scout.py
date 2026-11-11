@@ -105,6 +105,9 @@ class Matcher:
     @staticmethod
     def ok(player, st):
         """Gem-rate check; a player's own gem_rate_min (e.g. 0) replaces the sport cutoff."""
+        for lo, hi, prefixes in player.get("open") or []:   # e.g. every 2024 Panini set
+            if lo <= int(str(st["year"])[:4]) <= hi and st["set"].lower().startswith(prefixes):
+                return True
         if player.get("gem_min") is None:
             return st["_ok"]
         rate = st.get("gem_rate")
@@ -192,6 +195,9 @@ def players_from(cfg):
                     "sets": [x.lower() for x in sets_only],
                     "not_words": [_norm(w).strip() for w in p.get("not_words") or []],
                     "gem_min": float(p["gem_rate_min"]) if p.get("gem_rate_min") is not None else None,
+                    # no_cutoff: [{years: 2024, brands: [Panini, ...]}] = those sets skip the gem-rate cutoff
+                    "open": [(*_years(o["years"]), tuple(b.lower() for b in o["brands"]))
+                             for o in p.get("no_cutoff") or []],
                     "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
                               "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
                     "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
