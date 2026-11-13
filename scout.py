@@ -720,12 +720,15 @@ def main():
         alerts.remind(a, ebay.item)
 
     now = datetime.now(timezone.utc)
-    if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
+    # Which schedule fired, not the clock: GitHub often starts scheduled runs late, and judging by
+    # the minute made late full scans skip themselves
+    reminder_only = os.environ.get("GITHUB_EVENT_NAME") == "schedule" and os.environ.get("SCHEDULE", "").startswith("47 ")
+    if reminder_only:
         print("Reminder check only; the full scan runs at the top of the hour.")
         set_output(ran="false")
         return
 
-    if demo and os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.minute >= 30:
+    if demo and reminder_only:
         set_output(ran="false")
         return
     recheck_players(store, cfg)

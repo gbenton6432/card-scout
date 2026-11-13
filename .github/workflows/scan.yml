@@ -2,7 +2,8 @@ name: Scan eBay
 
 on:
   schedule:
-    - cron: "17,47 * * * *"  # twice an hour: shortlist reminders each time, a full scan at most hourly
+    - cron: "17 * * * *"     # hourly full scan (GitHub often starts these 10-30 minutes late)
+    - cron: "47 * * * *"     # reminder check only: shortlisted auctions ending soon
   workflow_dispatch:          # "Run workflow" button for a scan on demand
   push:
     paths: ["config.yaml", "gem_rates.yaml"]   # rescan right after players or sets change
@@ -45,6 +46,7 @@ jobs:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
           rm -rf site/demo site/data
           python scout.py
