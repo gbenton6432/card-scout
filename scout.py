@@ -336,15 +336,22 @@ class Scanner:
             lo, hi = self.price_range(by_name[player])
             self.store.db.execute("INSERT INTO units(key,player,year,lo,hi) VALUES(?,?,?,?,?)",
                                   (f"{player}|{year}|{lo}|{hi}", player, year, lo, hi))
-        # a player's price limits changed: restart those sweeps with the new range
-        for r in self.store.db.execute("SELECT key, player, year, lo, hi FROM units").fetchall():
-            p = by_name.get(r["player"])
-            if p and (r["player"], r["year"]) in want:
-                lo, hi = self.price_range(p)
-                if (r["lo"], r["hi"]) != (lo, hi):
-                    self.store.db.execute("UPDATE units SET key=?, lo=?, hi=?, next_offset=0, total=NULL, "
-                                          "started=NULL, finished=NULL WHERE key=?",
-                                          (f"{r['player']}|{r['year']}|{lo}|{hi}", lo, hi, r["key"]))
+        # a player's price limits changed: restart those sweeps with the new range. A player-year
+        # may be split into several price bands, so compare the whole span they cover.
+        spans = {}
+        for r in self.store.db.execute("SELECT player, year, lo, hi FROM units"):
+            k = (r["player"], r["year"])
+            lo0, hi0 = spans.get(k, (r["lo"], r["hi"]))
+            spans[k] = (min(lo0 or 0, r["lo"] or 0), max(hi0 or 0, r["hi"] or 0))
+        for (player, year), (lo0, hi0) in spans.items():
+            p = by_name.get(player)
+            if not p or (player, year) not in want:
+                continue
+            lo, hi = self.price_range(p)
+            if (float(lo0 or 0), float(hi0 or 0)) != (float(lo or 0), float(hi or 0)):
+                self.store.db.execute("DELETE FROM units WHERE player=? AND year=?", (player, year))
+                self.store.db.execute("INSERT INTO units(key,player,year,lo,hi) VALUES(?,?,?,?,?)",
+                                      (f"{player}|{year}|{lo}|{hi}", player, year, lo, hi))
         for player, year in have - want:  # player removed or set no longer qualifies
             self.store.db.execute("DELETE FROM units WHERE player=? AND year=?", (player, year))
         self.store.commit()
@@ -511,32 +518,46 @@ def multi_copies(data):
     return False
 
 
-def check_quantities(store, ebay, cfg, calls):
-    """Look up how many copies each Buy It Now listing has, best candidates first:
-    PSA 10 centering, then unclear photos, newest first. Uses at most `calls` eBay calls."""
+def refresh_listings(store, ebay, cfg, calls):
+    """Look listings up again, 20 per eBay call: anything sold or ended is removed, and Buy It Now
+    quantities are filled in (several copies = dropped). Order: quantity not known yet, then
+    cards with PSA 10 centering, then everything else, longest since last checked first."""
     photos = cfg.get("photos", {})
     bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
     rows = store.db.execute(
-        "SELECT id FROM listings WHERE active=1 AND multi IS NULL AND auction=0 "
-        "ORDER BY CASE WHEN c IS NULL THEN 2 WHEN json_extract(c,'$.confidence') >= 0.35 "
-        "AND json_extract(c,'$.worst') <= ? THEN 0 WHEN COALESCE(json_extract(c,'$.confidence'),0) < 0.35 "
-        "THEN 1 ELSE 3 END, first_seen DESC LIMIT ?", (bar, max(0, calls))).fetchall()
-    found = done = 0
-    for r in rows:
+        "SELECT id, auction FROM listings WHERE active=1 ORDER BY "
+        "CASE WHEN multi IS NULL AND auction=0 THEN 0 "
+        "WHEN json_extract(c,'$.confidence') >= 0.35 AND json_extract(c,'$.worst') <= ? THEN 1 ELSE 2 END, "
+        "COALESCE(checked_at, '') LIMIT ?", (bar, max(0, calls) * 20)).fetchall()
+    now, gone, several, done = now_iso(), 0, 0, 0
+    for i in range(0, len(rows), 20):
+        batch = rows[i:i + 20]
         try:
-            data = ebay.item(r["id"])
+            data = ebay.get_items([r["id"] for r in batch])
         except OutOfBudget:
             break
-        done += 1
-        if data is None:          # gone from eBay
-            store.db.execute("UPDATE listings SET active=0 WHERE id=?", (r["id"],))
+        except Exception as e:  # a bad batch shouldn't stop the run
+            print("Listing check skipped a batch:", e)
             continue
-        m = multi_copies(data)
-        found += m
-        store.db.execute("UPDATE listings SET multi=? WHERE id=?", (int(m), r["id"]))
+        if not isinstance(data, dict):
+            continue
+        found = {it.get("itemId"): it for it in data.get("items") or []}
+        for r in batch:
+            it = found.get(r["id"])
+            av = ((it or {}).get("estimatedAvailabilities") or [{}])[0]
+            ended = it is None or av.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" or \
+                (it.get("itemEndDate") and it["itemEndDate"] < now)
+            if ended:
+                store.db.execute("UPDATE listings SET active=0, checked_at=? WHERE id=?", (now, r["id"]))
+                gone += 1
+                continue
+            m = None if r["auction"] else int(multi_copies(it))
+            several += m or 0
+            store.db.execute("UPDATE listings SET checked_at=?, last_seen=?, multi=COALESCE(?, multi) WHERE id=?",
+                             (now, now, m, r["id"]))
+            done += 1
     store.commit()
-    left = store.db.execute("SELECT COUNT(*) FROM listings WHERE active=1 AND multi IS NULL AND auction=0").fetchone()[0]
-    print(f"Copy count checked on {done} Buy It Now listings ({found} had several copies); {left} not checked yet")
+    print(f"Re-checked {done + gone} listings: {gone} sold or ended, {several} with several copies")
 
 
 def publish(store, cfg, scanner, run_stats):
@@ -639,6 +660,12 @@ def budget_for_run(cfg, store):
     return max(0, left // max(1, hours_left))
 
 
+def recheck_calls(cfg):
+    """eBay calls per run for re-checking listings (20 listings per call)."""
+    return int(cfg.get("consigners", {}).get("recheck_calls_per_run",
+                                              cfg.get("consigners", {}).get("copy_checks_per_run", 80)))
+
+
 def set_output(**kv):
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
@@ -722,9 +749,7 @@ def main():
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)
     scanner.ensure_units()
-    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else max(0, budget_for_run(cfg, store) - (
-        int(cfg.get("consigners", {}).get("copy_checks_per_run", 80))
-        if cfg.get("consigners", {}).get("drop_multiple_copies", True) else 0))
+    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else max(0, budget_for_run(cfg, store) - recheck_calls(cfg))
     print(f"{len(scanner.players)} players, {store.db.execute('SELECT COUNT(*) FROM units').fetchone()[0]} "
           f"player-year sweeps; {ebay.budget} eBay calls for this run ({store.calls_today()} used today)")
     if "--list" in sys.argv:
@@ -742,11 +767,9 @@ def main():
 
     minutes = float(os.environ.get("MEASURE_MINUTES") or cfg.get("photos", {}).get("measure_minutes", 25))
     measure_new(store, minutes, demo, cfg.get("photos", {}).get("read_serials", True))
-    if cfg.get("consigners", {}).get("drop_multiple_copies", True):
-        ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(
-            int(cfg.get("consigners", {}).get("copy_checks_per_run", 80)),
-            budget_for_day(cfg) - store.calls_today())))
-        check_quantities(store, ebay, cfg, ebay.budget - ebay.used)
+    # Right before publishing: drop sold / ended listings and fill in Buy It Now quantities
+    ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(recheck_calls(cfg), budget_for_day(cfg) - store.calls_today())))
+    refresh_listings(store, ebay, cfg, 50 if demo else ebay.budget - ebay.used)
     shown = publish(store, cfg, scanner, scanner.stats)
     alerts.run(store, shown, a, demo=demo)
     store.commit()

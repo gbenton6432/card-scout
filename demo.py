@@ -126,6 +126,12 @@ class DemoEbay:
                 and (hi is None or float(it["price"]["value"]) <= hi)]
         return hits[offset:offset + self.PAGE] if offset < MAX_RESULTS else [], len(hits)
 
+    def get_items(self, ids):
+        self.used += 1
+        return {"items": [{"itemId": i, "estimatedAvailabilities": [
+            {"estimatedAvailabilityStatus": "IN_STOCK", "estimatedAvailableQuantity": 4 if i == "v1|demo3|0" else 1}]}
+            for i in ids]}
+
     def item(self, iid):
         self.used += 1
         # card 3 stands in for a seller with several copies of the same card

@@ -81,6 +81,10 @@ class Ebay:
     def item(self, iid):
         return self._get(f"/buy/browse/v1/item/{requests.utils.quote(iid, safe='')}")
 
+    def get_items(self, ids):
+        """Up to 20 listings in one call. Listings that have ended or sold are left out."""
+        return self._get("/buy/browse/v1/item/", {"item_ids": ",".join(ids[:20])})
+
 
 def big_image(url):
     return re.sub(r"s-l\d+", "s-l1600", url or "")
