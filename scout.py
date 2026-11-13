@@ -519,43 +519,37 @@ def multi_copies(data):
 
 
 def refresh_listings(store, ebay, cfg, calls):
-    """Look listings up again, 20 per eBay call: anything sold or ended is removed, and Buy It Now
-    quantities are filled in (several copies = dropped). Order: quantity not known yet, then
-    cards with PSA 10 centering, then everything else, longest since last checked first."""
+    """Look listings up again, one eBay call each (eBay only gives its 20-at-a-time lookup to
+    approved apps): anything sold or ended is removed, and Buy It Now quantities are filled in
+    (several copies = dropped). Order: quantity not known yet, then cards with PSA 10 centering,
+    then everything else, longest since last checked first."""
     photos = cfg.get("photos", {})
     bar = float(photos.get("psa10_max_split", 55)) + float(photos.get("tolerance", 1.5))
     rows = store.db.execute(
         "SELECT id, auction FROM listings WHERE active=1 ORDER BY "
         "CASE WHEN multi IS NULL AND auction=0 THEN 0 "
         "WHEN json_extract(c,'$.confidence') >= 0.35 AND json_extract(c,'$.worst') <= ? THEN 1 ELSE 2 END, "
-        "COALESCE(checked_at, '') LIMIT ?", (bar, max(0, calls) * 20)).fetchall()
+        "COALESCE(checked_at, '') LIMIT ?", (bar, max(0, calls))).fetchall()
     now, gone, several, done = now_iso(), 0, 0, 0
-    for i in range(0, len(rows), 20):
-        batch = rows[i:i + 20]
+    for r in rows:
         try:
-            data = ebay.get_items([r["id"] for r in batch])
+            it = ebay.item(r["id"])
         except OutOfBudget:
             break
-        except Exception as e:  # a bad batch shouldn't stop the run
-            print("Listing check skipped a batch:", e)
+        except Exception as e:  # one bad lookup shouldn't stop the run
+            print("Listing check skipped:", e)
             continue
-        if not isinstance(data, dict):
+        av = ((it or {}).get("estimatedAvailabilities") or [{}])[0]
+        if it is None or av.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" or \
+                (it.get("itemEndDate") and it["itemEndDate"] < now):
+            store.db.execute("UPDATE listings SET active=0, checked_at=? WHERE id=?", (now, r["id"]))
+            gone += 1
             continue
-        found = {it.get("itemId"): it for it in data.get("items") or []}
-        for r in batch:
-            it = found.get(r["id"])
-            av = ((it or {}).get("estimatedAvailabilities") or [{}])[0]
-            ended = it is None or av.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" or \
-                (it.get("itemEndDate") and it["itemEndDate"] < now)
-            if ended:
-                store.db.execute("UPDATE listings SET active=0, checked_at=? WHERE id=?", (now, r["id"]))
-                gone += 1
-                continue
-            m = None if r["auction"] else int(multi_copies(it))
-            several += m or 0
-            store.db.execute("UPDATE listings SET checked_at=?, last_seen=?, multi=COALESCE(?, multi) WHERE id=?",
-                             (now, now, m, r["id"]))
-            done += 1
+        m = None if r["auction"] else int(multi_copies(it))
+        several += m or 0
+        store.db.execute("UPDATE listings SET checked_at=?, last_seen=?, multi=COALESCE(?, multi) WHERE id=?",
+                         (now, now, m, r["id"]))
+        done += 1
     store.commit()
     print(f"Re-checked {done + gone} listings: {gone} sold or ended, {several} with several copies")
 

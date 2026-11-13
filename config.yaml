@@ -144,10 +144,9 @@ consigners:
   # Skip listings with more than one copy for sale (you may not get the pictured card):
   # "pick your card" listings, quantity over 1, or the same seller listing the same card twice.
   drop_multiple_copies: true
-  # Each run re-checks listings right before publishing (20 per eBay call, ~1,600 per run):
-  # sold or ended ones are removed, and Buy It Now quantities are filled in.
-  # PSA 10-centering cards are re-checked first.
-  recheck_calls_per_run: 80
+  # Each run re-checks listings right before publishing (one eBay call each): sold or ended
+  # ones are removed, and Buy It Now quantities are filled in. PSA 10-centering cards first.
+  recheck_calls_per_run: 100
 
 # ── Photo quality rules ───────────────────────────────────────
 photos:
