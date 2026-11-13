@@ -49,7 +49,7 @@ players:
      title_rule: {brands: [topps], also: [chrome, sapphire]}}
   # gem_rate_min on a player replaces the 50% cutoff for that player (0 = every Topps/Panini set)
   - {name: Cavan Sullivan,  sport: soccer,     years: 2024-, jersey: [6, 7], gem_rate_min: 0}
-  - {name: Tom Brady,       sport: football,   years: 2025-2026, jersey: [12]}
+  - {name: Tom Brady,       sport: football,   years: 2025-2026, jersey: [12], gem_rate_min: 0}   # every 2025-26 Topps/Panini set
   - {name: Kylian Mbappe,   sport: soccer,     years: 2016-, jersey: [10, 9, 7, 29]}
 
   # Disney characters: Topps Chrome Disney sets only. "search" is what's typed into eBay
