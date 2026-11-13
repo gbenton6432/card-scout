@@ -722,7 +722,12 @@ def main():
     now = datetime.now(timezone.utc)
     # Which schedule fired, not the clock: GitHub often starts scheduled runs late, and judging by
     # the minute made late full scans skip themselves
-    reminder_only = os.environ.get("GITHUB_EVENT_NAME") == "schedule" and os.environ.get("SCHEDULE", "").startswith("47 ")
+    # The :47 run is reminders only, unless no full scan has finished in the last 45 minutes
+    # (GitHub sometimes drops or delays scheduled runs)
+    last_full = store.get("last_full_scan")
+    recent = last_full and (now - datetime.fromisoformat(last_full)).total_seconds() < 45 * 60
+    reminder_only = (os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+                     and os.environ.get("SCHEDULE", "").startswith("47 ") and bool(recent))
     if reminder_only:
         print("Reminder check only; the full scan runs at the top of the hour.")
         set_output(ran="false")
@@ -774,6 +779,8 @@ def main():
     ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(recheck_calls(cfg), budget_for_day(cfg) - store.calls_today())))
     refresh_listings(store, ebay, cfg, 50 if demo else ebay.budget - ebay.used)
     shown = publish(store, cfg, scanner, scanner.stats)
+    store.put("last_full_scan", now_iso())
+    store.commit()
     alerts.run(store, shown, a, demo=demo)
     store.commit()
     set_output(ran="true")
