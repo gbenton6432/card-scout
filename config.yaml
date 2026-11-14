@@ -52,6 +52,10 @@ players:
   - {name: Tom Brady,       sport: football,   years: 2024-, jersey: [12], gem_rate_min: 0,   # every Topps/Panini set from 2024 on
      not_words: [topps now],                                                     # except Topps Now
      no_cutoff: [{years: 2024-, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Optic, Select, Mosaic]}]}
+  # Yan Diomande: 49 = RB Leipzig (club rookie year 2025-26), 11 = Ivory Coast (2026 World Cup),
+  # 25 = Real Madrid (from 2026-27). Every Topps/Panini card, no gem-rate cutoff.
+  - {name: Yan Diomande,    sport: soccer,     years: 2025-, jersey: [49, 11, 25], gem_rate_min: 0,
+     no_cutoff: [{years: 2025-, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Select, Mosaic]}]}
   - {name: Kylian Mbappe,   sport: soccer,     years: 2016-, jersey: [10, 9, 7, 29]}
 
   # Disney characters: Topps Chrome Disney sets only. "search" is what's typed into eBay
