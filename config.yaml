@@ -28,6 +28,14 @@ players:
                  {years: 2020, brands: [Panini, Prizm, Donruss, Optic, Select, Mosaic, Hoops]},
                  {years: 2025, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Optic]},
                  {years: 2026, brands: [Topps, Bowman, Finest, Panini, Prizm, Donruss, Optic]}]}
+  # NBA cards only: college / international / draft-pick cards are skipped (not_words)
+  - {name: Luka Doncic,     sport: basketball, years: 2018-, jersey: [77],
+     not_words: [real madrid, euroleague, slovenia, fiba, overtime, draft picks]}
+  - {name: Shai Gilgeous-Alexander, sport: basketball, years: 2018-, jersey: [2],
+     search: "Shai Gilgeous Alexander",
+     not_words: [kentucky, wildcats, college, university, ncaa, bowman u, draft picks, canada, fiba]}
+  - {name: Cade Cunningham, sport: basketball, years: 2021-, jersey: [2],
+     not_words: [oklahoma state, cowboys, college, university, ncaa, bowman u, draft picks, fiba]}
   - {name: Stephen Curry,   sport: basketball, years: 2009-, jersey: [30]}
   - {name: Patrick Mahomes, sport: football,   years: 2017-, jersey: [15]}
   - {name: Josh Allen,      sport: football,   years: 2018-, jersey: [17]}
