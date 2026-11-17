@@ -172,10 +172,16 @@ class Matcher:
     def match_rules(self, t, title, player):
         """Player-specific rule: the title has one brand word and one 'also' word (no gem-rate
         cutoff). The set is GemRate's name when one matches, else e.g. 'Topps Chrome'."""
-        r = player["rules"]
-        brand = next((b for b in r["brands"] if f" {b} " in t), None)
-        also = next((a for a in r["also"] if f" {a} " in t), None)
-        if not brand or not also:
+        brand = also = None
+        for r in player["rules"]:  # several rules allowed; the first that fits wins
+            if any(f" {w} " in t for w in r["not"]):
+                continue
+            b = next((b for b in r["brands"] if f" {b} " in t), None)
+            a = next((a for a in r["also"] if f" {a} " in t), None)
+            if b and (a or not r["also"]):
+                brand, also = b, a or ""
+                break
+        if not brand:
             return None
         for y in dict.fromkeys(int(m) for m in YEAR_RE.findall(title)):
             if not (player["lo"] <= y <= player["hi"]):
@@ -219,8 +225,13 @@ def players_from(cfg):
                     # no_cutoff: [{years: 2024, brands: [Panini, ...]}] = those sets skip the gem-rate cutoff
                     "open": [(*_years(o["years"]), tuple(_norm(b).strip() for b in o["brands"]))
                              for o in p.get("no_cutoff") or []],
-                    "rules": {"brands": [_norm(x).strip() for x in p["title_rule"]["brands"]],
-                              "also": [_norm(x).strip() for x in p["title_rule"]["also"]]} if p.get("title_rule") else None,
+                    # title_rule: one rule or a list; a card counts when its title has one of a rule's
+                    # brands and (if the rule lists any) one of its "also" words, and none of its "not" words
+                    "rules": [{"brands": [_norm(x).strip() for x in r["brands"]],
+                               "also": [_norm(x).strip() for x in r.get("also") or []],
+                               "not": [_norm(x).strip() for x in r.get("not") or []]}
+                              for r in (p["title_rule"] if isinstance(p["title_rule"], list) else [p["title_rule"]])]
+                             if p.get("title_rule") else None,
                     "category": "tcg" if sport in TCG_SPORTS else "nonsport" if sport == "disney" else "sports"})
     return out
 
