@@ -1,0 +1,32 @@
+name: Probe a player
+
+on:
+  workflow_dispatch:
+    inputs:
+      player:
+        description: player name as in config.yaml
+        required: true
+      pages:
+        description: result pages (200 each)
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          PLAYER: ${{ inputs.player }}
+          PAGES: ${{ inputs.pages }}
+        run: python tools/probe.py "$PLAYER" "$PAGES"
