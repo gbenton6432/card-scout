@@ -20,12 +20,27 @@ def qualifies(l, a):
         return False
     if a.get("max_times_typical_ask") and l.get("x") and l["x"] > float(a["max_times_typical_ask"]):
         return False
-    # Only cards priced at or under this share of the typical ask for the same card (0.5 = half
-    # price or less). Needs a typical ask, i.e. the card number in the title and 3+ other listings.
-    if a.get("max_share_of_typical_ask"):
-        if l.get("x") is None or l["x"] > float(a["max_share_of_typical_ask"]):
+    # Deals only: priced at or under this share (0.65 = 65%) of the typical ask (3+ other listings)
+    # OR of the market value from recorded sales
+    share = a.get("deal_at_or_under", a.get("max_share_of_typical_ask"))
+    if share:
+        d = deal(l)
+        if d is None or d[0] > float(share):
             return False
     return True
+
+
+def deal(l):
+    """(best share of comparison price, what it's compared with) or None. Price includes shipping."""
+    out = []
+    if l.get("x") is not None:
+        out.append((l["x"], "typical ask"))
+    if l.get("xa") is not None:
+        out.append((l["xa"], "≈ typical ask"))
+    mv = l.get("mv")
+    if mv and mv[0]:
+        out.append((round((l["p"] + (l.get("s") or 0)) / mv[0], 2), f"sold value ({mv[3]})"))
+    return min(out) if out else None
 
 
 def _split(v):
@@ -37,7 +52,8 @@ def _row(l):
     c = l.get("c") or {}
     cen = " · ".join(x for x in (_split(c["lr"]) + " LR" if c.get("lr") is not None else "",
                                  _split(c["tb"]) + " TB" if c.get("tb") is not None else "") if x) or "–"
-    vs = f"{l['x']:.0%} of typical" if l.get("x") is not None else "–"
+    d = deal(l)
+    vs = f"{d[0]:.0%} of {d[1]}" if d else "–"
     return f"| [{l['t'][:70]}]({l['u']}) | ${l['p']:,.2f} ({vs}) | {cen} | {l.get('g', '–')}% |"
 
 

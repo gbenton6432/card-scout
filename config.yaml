@@ -151,9 +151,10 @@ grading:
 alerts:
   enabled: true
   psa10_centering_only: true  # must measure 55/45 or better
-  # Email only for cards priced at half (0.5) or less of the typical ask for the same card
-  # (blank = off, alerting on every new PSA 10-centering Buy It Now card)
-  max_share_of_typical_ask: 0.5
+  # Email only for deals: priced at 65% (0.65) or less of either the typical ask for the same
+  # card (3+ other listings) or its market value from recorded sales. Blank = every new
+  # PSA 10-centering Buy It Now card.
+  deal_at_or_under: 0.65
   max_price: 500
   buy_it_now_only: true       # new auctions don't alert; shortlist them for a reminder instead
   auction_reminder_minutes: 75  # remind when a shortlisted auction has this long left (arrives ~45-75 min before)
@@ -175,7 +176,10 @@ consigners:
   drop_multiple_copies: true
   # Each run re-checks listings right before publishing (one eBay call each): sold or ended
   # ones are removed, and Buy It Now quantities are filled in. PSA 10-centering cards first.
-  recheck_calls_per_run: 100
+  recheck_calls_per_run: 60
+  # Finished listings (auction ended, or gone from search) are looked up to record whether and
+  # for how much they sold; these sales give each card a market value.
+  sale_checks_per_run: 70
 
 # ── Photo quality rules ───────────────────────────────────────
 photos:

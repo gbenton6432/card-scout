@@ -52,6 +52,7 @@ select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: v
   border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; cursor: pointer }
 select { padding-right: 28px; max-width: 100% }
 [hidden] { display: none !important }
+.muted { color: var(--muted) }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 select:focus-visible, .chip:focus-visible, .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 
@@ -168,6 +169,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <option value="price-desc">Sort: Price high to low</option>
       <option value="new">Sort: Newly listed</option>
       <option value="ending">Sort: Auctions ending soon</option>
+      <option value="deal">Sort: Best deal</option>
     </select>
     <div class="price-range" role="group" aria-label="Asking price">
       <label for="f-min">$</label><input id="f-min" type="number" inputmode="decimal" min="0" placeholder="Min" aria-label="Minimum price">
@@ -194,6 +196,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <label for="f-target">Target +</label><input id="f-target" type="number" inputmode="numeric" min="0" step="5" placeholder="0"><span>%</span>
     </div>
     <button class="chip" id="f-offers" aria-pressed="false">Accepts offers</button>
+    <button class="chip" id="f-deals" aria-pressed="false" title="Priced at 65% or less of the typical ask or of the sold value">Deals ≤65%</button>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
     <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
     <!-- Shortlist filter and sync are hidden for now; remove "hidden" to bring them back -->
@@ -204,7 +207,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <button class="chip" id="open-check">Check a listing</button>
   </div>
 
-  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. Serial numbers are read from the card photo, not the title, so check the stamp in the listing before buying. Break-even is the sale price that covers your cost plus all-in grading after eBay's fee; set a target % to see the sale you'd need for that profit. Card gem rate is for that exact card and parallel, from GemRate. Tap a corner to enlarge it.</div>
+  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. Serial numbers are read from the card photo, not the title, so check the stamp in the listing before buying. Break-even is the sale price that covers your cost plus all-in grading after eBay's fee; set a target % to see the sale you'd need for that profit. Card gem rate is for that exact card and parallel, from GemRate. Sold value comes from sales the scanner has seen (auction final bids, Buy It Now sales without offers): this exact card, else the same set and parallel, else an estimate from the player's base cards; “Deal” means the price with shipping is 65% or less of the sold value or of the typical ask. Tap a corner to enlarge it.</div>
   <div class="list" id="list"></div>
   <button class="btn more" id="more" hidden>Show more</button>
 </div>
@@ -289,7 +292,7 @@ async function pushShortlist(retry = true) {
 const dismissed = new Set(store.get("cs-hide", []));
 const lastVisit = store.get("cs-lastvisit", null);
 const DEFAULTS = { player: "", year: "", set: "", type: "", sort: "center", psa: false, read: false,
-  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, target: "", uptoBy: {} };
+  star: false, hidden: false, min: "", max: "", num: "", den: "", serial: "", offers: false, deals: false, target: "", uptoBy: {} };
 const state = Object.assign({}, DEFAULTS, store.get("cs-filters", {}));
 state.star = false;
 state.uptoBy = Object.assign({}, state.uptoBy);  // "numbered to ≤" per player ("" = All players)  // shortlist filter is hidden for now
@@ -325,6 +328,26 @@ function serialPill(l) {
   const tags = [j ? "jersey match" : "", l.sn.num === 1 && l.sn.den > 1 ? "1st" : "", l.sn.num === l.sn.den && l.sn.den > 1 ? "last" : ""].filter(Boolean);
   return `<span class="pill serialno" title="Read from the card photo; check it in the listing">${String(l.sn.num).padStart(String(l.sn.den).length, "0")}/${l.sn.den}${tags.length ? " · " + tags.join(" · ") : ""}</span>`;
 }
+// Deal = price (with shipping) as a share of the typical ask or of the sold value, whichever is lower
+const DEAL = 0.65;
+function deal(l) {
+  const out = [];
+  if (l.x != null) out.push([l.x, l.approx ? "≈ typical ask" : "typical ask"]);
+  if (l.mv && l.mv[0]) out.push([Math.round((l.price + (l.shipping || 0)) / l.mv[0] * 100) / 100, "sold value"]);
+  return out.length ? out.sort((a, b) => a[0] - b[0])[0] : null;
+}
+function valueLine(l) {
+  if (!l.mv) return "";
+  const [v, n, lvl, label] = l.mv;
+  const tip = { A: "Median of recorded sales of this exact card", B: "Median of this player's sales in this set and parallel (other card numbers)",
+                C: "Estimate: this player's base-card sales in the set times the usual premium for this parallel" }[lvl] || "";
+  return `<div class="be" title="${esc(tip)}">Sold value <b>${money(v)}</b> <span class="muted">${esc(label)}</span></div>`;
+}
+function dealPill(l) {
+  const d = deal(l);
+  if (!d || d[0] > DEAL) return "";
+  return `<span class="pill good" title="Price incl. shipping vs ${esc(d[1])}">Deal · ${Math.round(d[0] * 100)}% of ${esc(d[1])}</span>`;
+}
 // Sale price needed to get back what you paid plus grading, after eBay's fee
 function breakEven(l) {
   const g = INDEX.grading || {}, tiers = g.tiers || { "Value": 45, "Value Bulk": 30 };
@@ -353,7 +376,7 @@ function expand(r, player) {
   return {
     id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, bin: r.b, shipping: r.s,
     auction: !!r.a, ends: r.e, first: r.f, seller: r.sl, feedback: r.fb, player, year: r.y, set: r.st, gem: r.g,
-    card: r.k, parallel: r.pr, x: r.x ?? r.xa, approx: r.x == null && r.xa != null, listed: r.l || r.f, offers: !!r.o,
+    card: r.k, parallel: r.pr, x: r.x ?? r.xa, approx: r.x == null && r.xa != null, mv: r.mv || null, listed: r.l || r.f, offers: !!r.o,
     sn: r.c?.sn ? { num: r.c.sn[0], den: r.c.sn[1], conf: r.c.sn[2] } : null,
     cg: r.cg ? { rate: r.cg[0], graded: r.cg[1], psa10: r.cg[2], psa9: r.cg[3], parallel: r.cg[4] } : null,
     c: r.c ? { lr: r.c.lr, tb: r.c.tb, worst: r.c.w, confidence: r.c.cf ?? 0, quad: r.c.q, note: r.c.note } : null,
@@ -378,11 +401,11 @@ function listings() {
 async function render(resetPaging = true) {
   store.set("cs-filters", state);
   if (resetPaging) shownN = PAGE_N;
-  for (const k of ["psa", "read", "star", "hidden", "offers"]) $("#f-" + k).setAttribute("aria-pressed", state[k]);
+  for (const k of ["psa", "read", "star", "hidden", "offers", "deals"]) $("#f-" + k).setAttribute("aria-pressed", state[k]);
   await ensureLoaded();
   const all = listings();
   fillFacets(all);
-  if (!["center", "price", "price-desc", "new", "ending"].includes(state.sort)) state.sort = "center";
+  if (!["center", "price", "price-desc", "new", "ending", "deal"].includes(state.sort)) state.sort = "center";
   for (const k of ["type", "sort", "min", "max", "num", "den", "serial", "target"]) $("#f-" + k).value = state[k];
   const min = parseFloat(state.min), max = parseFloat(state.max);
   const num = parseInt(state.num), den = parseInt(state.den);
@@ -413,11 +436,12 @@ async function render(resetPaging = true) {
     (!state.psa || (readable(l) && l.c.worst <= 55.5)) &&
     (!state.read || readable(l)) &&
     (!state.star || starred.has(l.id)) &&
-    (!state.offers || l.offers) && serialOk(l) &&
+    (!state.offers || l.offers) && (!state.deals || (deal(l) && deal(l)[0] <= DEAL)) && serialOk(l) &&
     (state.hidden || !dismissed.has(l.id)));
   const by = {
     center: (a, b) => (readable(b) - readable(a)) || ((a.c?.worst ?? 99) - (b.c?.worst ?? 99)) || a.price - b.price,
     "price-desc": (a, b) => (b.price + (b.shipping || 0)) - (a.price + (a.shipping || 0)),
+    deal: (a, b) => (deal(a)?.[0] ?? 9) - (deal(b)?.[0] ?? 9),
     price: (a, b) => (a.price + (a.shipping || 0)) - (b.price + (b.shipping || 0)),
     new: (a, b) => (b.listed || "").localeCompare(a.listed || ""),
     ending: (a, b) => (b.auction - a.auction) || (a.ends || "z").localeCompare(b.ends || "z"),
@@ -452,10 +476,10 @@ function row(l) {
     <div class="info">
       <a class="title" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a>
       <div class="sub"><span class="price">${money(l.price)}</span>${ship}<span>${l.auction ? "Current bid · " + rel(l.ends) : "Buy It Now"}</span>${l.bin ? `<span>or Buy It Now ${money(l.bin)}</span>` : ""}${l.offers ? "<span>Accepts offers</span>" : ""}<span>Listed ${ago(l.listed)}</span></div>
-      <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${serialPill(l)}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
+      <div class="pills">${isNew ? `<span class="pill new">New</span>` : ""}${dealPill(l)}${serialPill(l)}${splitPill(l)}${xPill}${flags.map(f => `<span class="pill warn">${esc(f)}</span>`).join("")}</div>
       ${readable(l) ? splits(l) : (l.c?.note ? `<div class="sub">${esc(l.c.note)}</div>` : "")}
       ${l.c ? feedbackRow(l) : ""}
-      ${breakEven(l)}
+      ${valueLine(l)}${breakEven(l)}
       <div class="rates"><span>Set gem rate <b>${l.gem != null ? l.gem + "%" : "–"}</b></span><span>${l.cg ? `Card gem rate <b>${l.cg.rate}%</b> (${l.cg.graded.toLocaleString()} graded${l.cg.parallel && l.cg.parallel !== "Base" ? ", " + esc(l.cg.parallel) : ""})` : "Card gem rate <b>–</b>"}</span>${l.cg ? `<span>PSA 10 pop <b>${l.cg.psa10.toLocaleString()}</b></span>` : ""}</div>
       <div class="sub"><span>${esc(l.player)} · ${esc(l.year)} ${esc(l.set)}</span><span>Seller ${esc(l.seller)} (${(l.feedback ?? 0).toLocaleString()})</span></div>
       <div class="actions">
@@ -544,7 +568,7 @@ $("#list").addEventListener("click", e => {
   render(false);
 });
 $("#more").onclick = () => { shownN += PAGE_N; render(false) };
-for (const k of ["psa", "read", "star", "hidden", "offers"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
+for (const k of ["psa", "read", "star", "hidden", "offers", "deals"]) $("#f-" + k).onclick = () => { state[k] = !state[k]; render() };
 // Reset clears every filter; the sort and profit target % stay as they are
 $("#f-reset").onclick = () => {
   Object.assign(state, DEFAULTS, { sort: state.sort, target: state.target, uptoBy: {} }); render();
@@ -661,7 +685,7 @@ function showCheck(res) {
       <div class="sub"><span class="price">${money(l.price)}</span><span>${auction ? "Current bid" + (res.price && res.bid ? ` · or Buy It Now ${money(parseFloat(res.price))}` : "") : "Buy It Now"}</span></div>
       <div class="pills">${serialPill(l)}${splitPill(l)}</div>
       ${readable(l) ? splits(l) : (c.note ? `<div class="sub">${esc(c.note)}</div>` : "")}
-      ${breakEven(l)}
+      ${valueLine(l)}${breakEven(l)}
       ${res.copies && res.copies !== "1" ? `<div><span class="pill bad">${esc(res.copies)} copies for sale</span></div>` : ""}
       <div class="sub"><span>Seller ${esc(res.seller || "")} (${(res.feedback ?? 0).toLocaleString()}${res.feedback_pct ? ", " + res.feedback_pct + "%" : ""})</span></div>
     </div>

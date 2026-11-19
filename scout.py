@@ -27,6 +27,7 @@ import alerts
 from cards import card_key
 from centering import measure
 from ebay import Ebay, OutOfBudget, PAGE, MAX_RESULTS, big_image
+import values
 from store import Store, now_iso
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -294,6 +295,7 @@ def to_listing(it, player, year, st):
         # 1 = several copies for sale (a "pick your card" listing, or quantity over 1); 0 = one copy;
         # None = not known yet (Buy It Now listings get their quantity looked up later)
         "multi": 1 if it.get("itemGroupHref") or it.get("itemGroupType") else (0 if "AUCTION" in opts else None),
+        "bids": int(it.get("bidCount") or 0) if "AUCTION" in opts else None,
     }
 
 
@@ -397,8 +399,9 @@ class Scanner:
                 # Finished this unit: anything here not seen since it started has ended
                 started = self.store.db.execute("SELECT started FROM units WHERE key=?", (u["key"],)).fetchone()[0]
                 gone = self.store.db.execute(
-                    "UPDATE listings SET active=0 WHERE active=1 AND player=? AND year=? AND price BETWEEN ? AND ? "
-                    "AND last_seen < ?", (p["name"], u["year"], u["lo"] or 0, u["hi"] or 1e12, started)).rowcount
+                    "UPDATE listings SET active=0, sale_check=1 WHERE active=1 AND player=? AND year=? "
+                    "AND price BETWEEN ? AND ? AND last_seen < ?",
+                    (p["name"], u["year"], u["lo"] or 0, u["hi"] or 1e12, started)).rowcount
                 self.stats["ended (found by sweep)"] += gone
                 self.store.db.execute("UPDATE units SET total=?, next_offset=0, finished=? WHERE key=?",
                                       (total, now_iso(), u["key"]))
@@ -407,7 +410,7 @@ class Scanner:
             self.store.commit()
 
     def end_auctions(self):
-        n = self.store.db.execute("UPDATE listings SET active=0 WHERE active=1 AND auction=1 AND ends < ?",
+        n = self.store.db.execute("UPDATE listings SET active=0, sale_check=1 WHERE active=1 AND auction=1 AND ends < ?",
                                   (now_iso(),)).rowcount
         self.stats["auctions ended"] += n
         self.store.commit()
@@ -529,6 +532,53 @@ def multi_copies(data):
     return False
 
 
+def note_sale(store, row, it):
+    """Record a sale if eBay's lookup of a finished listing says it sold. Auctions: the final bid.
+    Buy It Now: the list price, marked 'bin_offer' when offers were allowed (the real price may
+    be lower; those aren't used for values)."""
+    av = (it.get("estimatedAvailabilities") or [{}])[0]
+    sold = (av.get("estimatedSoldQuantity") or 0) >= 1
+    if not sold:
+        return False
+    ship = row["ship"] or 0
+    if row["auction"]:
+        if not int(it.get("bidCount") or 0):
+            return False
+        price = float((it.get("currentBidPrice") or it.get("price") or {}).get("value") or 0)
+        kind = "auction"
+    else:
+        price = float((it.get("price") or {}).get("value") or row["price"] or 0)
+        kind = "bin_offer" if row["offers"] else "bin"
+    values.record(store, row, price + ship, kind, it.get("itemEndDate"))
+    return True
+
+
+def check_sales(store, ebay, calls):
+    """Look up listings that just finished (auction ended, or gone from search) to see whether
+    they sold and for how much. Newest first; ones not looked up within 3 days are dropped."""
+    old = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds")
+    store.db.execute("UPDATE listings SET sale_check=NULL WHERE sale_check=1 AND last_seen < ?", (old,))
+    rows = store.db.execute("SELECT * FROM listings WHERE sale_check=1 ORDER BY auction DESC, last_seen DESC LIMIT ?",
+                            (max(0, calls),)).fetchall()
+    found = done = 0
+    for r in rows:
+        try:
+            it = ebay.item(r["id"])
+        except OutOfBudget:
+            break
+        except Exception as e:
+            print("Sale check skipped:", e)
+            continue
+        done += 1
+        store.db.execute("UPDATE listings SET sale_check=NULL WHERE id=?", (r["id"],))
+        if it is not None and note_sale(store, r, it):
+            found += 1
+    store.commit()
+    left = store.db.execute("SELECT COUNT(*) FROM listings WHERE sale_check=1").fetchone()[0]
+    total = store.db.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
+    print(f"Sale check: looked up {done} finished listings, {found} sold; {left} waiting; {total} sales recorded")
+
+
 def refresh_listings(store, ebay, cfg, calls):
     """Look listings up again, one eBay call each (eBay only gives its 20-at-a-time lookup to
     approved apps): anything sold or ended is removed, and Buy It Now quantities are filled in
@@ -554,6 +604,8 @@ def refresh_listings(store, ebay, cfg, calls):
         if it is None or av.get("estimatedAvailabilityStatus") == "OUT_OF_STOCK" or \
                 (it.get("itemEndDate") and it["itemEndDate"] < now):
             store.db.execute("UPDATE listings SET active=0, checked_at=? WHERE id=?", (now, r["id"]))
+            if it is not None:
+                note_sale(store, store.db.execute("SELECT * FROM listings WHERE id=?", (r["id"],)).fetchone(), it)
             gone += 1
             continue
         m = None if r["auction"] else int(multi_copies(it))
@@ -568,6 +620,7 @@ def refresh_listings(store, ebay, cfg, calls):
 def publish(store, cfg, scanner, run_stats):
     photos, cons = cfg.get("photos", {}), cfg.get("consigners", {})
     rows = [dict(r) for r in store.db.execute("SELECT * FROM listings WHERE active=1")]
+    valuer = values.Valuer(store)
     for r in rows:
         r["c"] = json.loads(r["c"]) if r["c"] else None
     max_per = int(cons.get("max_listings_per_seller") or 0)
@@ -618,6 +671,8 @@ def publish(store, cfg, scanner, run_stats):
             "st": r["set_name"], "g": r["gem"], "k": r["card"], "pr": r["parallel"],
             # x = vs the same card (alerts use it); xa = approximate, for titles without a card number
             "x": ratio if r["card"] else None, "xa": None if r["card"] else ratio,
+            # mv = market value from recorded sales: [value, sales behind it, level A/B/C, label]
+            "mv": list(mv) if (mv := valuer.value(r)) else None,
             "cg": [cr["rate"], cr["graded"], cr["psa10"], cr["psa9"], cr["parallel"]] if cr else None,
             "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
                   "q": c.get("quad"), "note": c.get("note"), "sn": c.get("sn")} if r["c"] else None,
@@ -671,6 +726,11 @@ def recheck_calls(cfg):
                                               cfg.get("consigners", {}).get("copy_checks_per_run", 80)))
 
 
+def sale_calls(cfg):
+    """eBay calls per run for looking up whether finished listings sold."""
+    return int(cfg.get("consigners", {}).get("sale_checks_per_run", 70))
+
+
 def set_output(**kv):
     path = os.environ.get("GITHUB_OUTPUT")
     if path:
@@ -710,6 +770,7 @@ def main():
         demo = True
     # Demo runs use their own database so sample cards never mix with real ones
     store = Store(os.path.join(HERE, "cache", "demo.db" if demo else "listings.db"))
+    values.setup(store)
 
     a = cfg.get("alerts", {})
 
@@ -762,7 +823,7 @@ def main():
         print(f"Re-measuring {n} photos with the improved border check")
     scanner = Scanner(cfg, store, ebay)
     scanner.ensure_units()
-    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else max(0, budget_for_run(cfg, store) - recheck_calls(cfg))
+    ebay.budget = int(os.environ.get("DEMO_BUDGET", 10 ** 9)) if demo else max(0, budget_for_run(cfg, store) - recheck_calls(cfg) - sale_calls(cfg))
     print(f"{len(scanner.players)} players, {store.db.execute('SELECT COUNT(*) FROM units').fetchone()[0]} "
           f"player-year sweeps; {ebay.budget} eBay calls for this run ({store.calls_today()} used today)")
     if "--list" in sys.argv:
@@ -783,6 +844,8 @@ def main():
     # Right before publishing: drop sold / ended listings and fill in Buy It Now quantities
     ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(recheck_calls(cfg), budget_for_day(cfg) - store.calls_today())))
     refresh_listings(store, ebay, cfg, 50 if demo else ebay.budget - ebay.used)
+    ebay.budget = ebay.used + (10 ** 9 if demo else max(0, min(sale_calls(cfg), budget_for_day(cfg) - store.calls_today())))
+    check_sales(store, ebay, 200 if demo else ebay.budget - ebay.used)
     shown = publish(store, cfg, scanner, scanner.stats)
     store.put("last_full_scan", now_iso())
     store.commit()
