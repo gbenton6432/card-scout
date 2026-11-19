@@ -151,7 +151,9 @@ grading:
 alerts:
   enabled: true
   psa10_centering_only: true  # must measure 55/45 or better
-  max_times_typical_ask: 2    # skip cards priced over 2x the typical ask for the same card (blank = off)
+  # Email only for cards priced at half (0.5) or less of the typical ask for the same card
+  # (blank = off, alerting on every new PSA 10-centering Buy It Now card)
+  max_share_of_typical_ask: 0.5
   max_price: 500
   buy_it_now_only: true       # new auctions don't alert; shortlist them for a reminder instead
   auction_reminder_minutes: 75  # remind when a shortlisted auction has this long left (arrives ~45-75 min before)

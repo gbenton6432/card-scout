@@ -20,6 +20,11 @@ def qualifies(l, a):
         return False
     if a.get("max_times_typical_ask") and l.get("x") and l["x"] > float(a["max_times_typical_ask"]):
         return False
+    # Only cards priced at or under this share of the typical ask for the same card (0.5 = half
+    # price or less). Needs a typical ask, i.e. the card number in the title and 3+ other listings.
+    if a.get("max_share_of_typical_ask"):
+        if l.get("x") is None or l["x"] > float(a["max_share_of_typical_ask"]):
+            return False
     return True
 
 
@@ -32,7 +37,8 @@ def _row(l):
     c = l.get("c") or {}
     cen = " · ".join(x for x in (_split(c["lr"]) + " LR" if c.get("lr") is not None else "",
                                  _split(c["tb"]) + " TB" if c.get("tb") is not None else "") if x) or "–"
-    return f"| [{l['t'][:70]}]({l['u']}) | ${l['p']:,.2f} | {cen} | {l.get('g', '–')}% |"
+    vs = f"{l['x']:.0%} of typical" if l.get("x") is not None else "–"
+    return f"| [{l['t'][:70]}]({l['u']}) | ${l['p']:,.2f} ({vs}) | {cen} | {l.get('g', '–')}% |"
 
 
 def run(store, shown, a, demo=False):
