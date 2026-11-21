@@ -6,9 +6,10 @@ listing sells out. Each price includes shipping, like the asking prices it is co
 
 A listing's value comes from the most specific level that has data:
   A  the same card (player, year, set, card number, parallel)          "3 sales"
-  B  the same player, year, set and parallel, any card number          "4 sales, same parallel"
-  C  the player's base cards in that set x the set's usual premium     "est. base x parallel"
-     for this parallel (learned from every player's sales in the set)
+  C  the same card's base version x the set's usual premium for this   "est. base x parallel"
+     parallel (learned from every player's sales in the set)
+Different card numbers are never mixed: in one set they can be base cards, inserts, relics or
+autographs worth very different amounts.
 """
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -50,17 +51,16 @@ class Valuer:
         rows = store.db.execute("SELECT * FROM sales WHERE sold_at >= ? AND kind != 'bin_offer'", (since,)).fetchall()
         self.n_sales = len(rows)
         self.card = defaultdict(list)       # A
-        self.par = defaultdict(list)        # B
-        self.base = defaultdict(list)       # player's base cards in a set
+        self.base = defaultdict(list)       # base version of one card
         self.set_par = defaultdict(list)    # every player's sales of a parallel in a set
         self.set_base = defaultdict(list)   # every player's base sales in a set
         for s in rows:
             par = s["parallel"] or "base"
-            self.par[(s["player"], s["year"], s["set_name"], par)].append(s["price"])
             if s["card"]:
                 self.card[(s["player"], s["year"], s["set_name"], s["card"], par)].append(s["price"])
             if _is_base(par):
-                self.base[(s["player"], s["year"], s["set_name"])].append(s["price"])
+                if s["card"]:
+                    self.base[(s["player"], s["year"], s["set_name"], s["card"])].append(s["price"])
                 self.set_base[(s["year"], s["set_name"])].append(s["price"])
             else:
                 self.set_par[(s["year"], s["set_name"], par)].append(s["price"])
@@ -72,14 +72,11 @@ class Valuer:
             v = self.card.get((r["player"], r["year"], r["set_name"], r["card"], par))
             if v:
                 return round(median(v), 2), len(v), "A", f"{len(v)} sale{'s' if len(v) > 1 else ''}"
-        v = self.par.get((r["player"], r["year"], r["set_name"], par))
-        if v and len(v) >= 2:
-            return round(median(v), 2), len(v), "B", f"{len(v)} sales, same set & parallel"
-        if not _is_base(par):
-            b = self.base.get((r["player"], r["year"], r["set_name"]))
+        if not _is_base(par) and r["card"]:
+            b = self.base.get((r["player"], r["year"], r["set_name"], r["card"]))
             sp, sb = self.set_par.get((r["year"], r["set_name"], par)), self.set_base.get((r["year"], r["set_name"]))
             if b and len(b) >= 2 and sp and len(sp) >= 3 and sb and len(sb) >= 3:
                 mult = median(sp) / median(sb)
                 n = len(b) + len(sp)
-                return round(median(b) * mult, 2), n, "C", f"est. {r['player'].split()[-1]} base × {mult:.1f} for this parallel"
+                return round(median(b) * mult, 2), n, "C", f"est. base #{r['card']} × {mult:.1f} for this parallel"
         return None

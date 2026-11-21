@@ -656,6 +656,16 @@ def publish(store, cfg, scanner, run_stats):
                 r["price"] + (r["ship"] or 0))
     typical = {k: statistics.median(v) for k, v in groups.items() if len(v) >= 3}
 
+    def low_ask(key, own):
+        """For deals: the 25th percentile of the OTHER Buy It Now asks for the same card (3+).
+        Asking prices run above what cards sell for, so a deal has to beat the cheaper asks."""
+        others = list(groups.get(key, []))
+        if own in others:
+            others.remove(own)
+        if len(others) < 3:
+            return None
+        return statistics.quantiles(others, n=4)[0] if len(others) >= 4 else min(others)
+
     cidx = load_card_rates()
     os.makedirs(os.path.join(SITE_DATA, "players"), exist_ok=True)
     by_player = defaultdict(list)
@@ -663,6 +673,9 @@ def publish(store, cfg, scanner, run_stats):
         c = r["c"] or {}
         t = typical.get((r["player"], r["year"], r["set_name"], r["card"] or "~", r["parallel"]))
         ratio = round((r["price"] + (r["ship"] or 0)) / t, 2) if t else None
+        key = (r["player"], r["year"], r["set_name"], r["card"] or "~", r["parallel"])
+        la = low_ask(key, r["price"] + (r["ship"] or 0)) if not r["auction"] else None
+        low = round((r["price"] + (r["ship"] or 0)) / la, 2) if la else None
         cr = card_rate(cidx, r)
         by_player[r["player"]].append({
             "id": r["id"], "t": r["title"], "u": r["url"], "i": r["img"], "n": r["n_img"],
@@ -673,6 +686,7 @@ def publish(store, cfg, scanner, run_stats):
             "x": ratio if r["card"] else None, "xa": None if r["card"] else ratio,
             # mv = market value from recorded sales: [value, sales behind it, level A/B/C, label]
             "mv": list(mv) if (mv := valuer.value(r)) else None,
+            "xl": low,  # price vs the cheaper (25th percentile) other asks: used for deals
             "cg": [cr["rate"], cr["graded"], cr["psa10"], cr["psa9"], cr["parallel"]] if cr else None,
             "c": {"lr": c.get("lr"), "tb": c.get("tb"), "w": c.get("worst"), "cf": c.get("confidence"),
                   "q": c.get("quad"), "note": c.get("note"), "sn": c.get("sn")} if r["c"] else None,

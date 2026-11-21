@@ -31,16 +31,18 @@ def qualifies(l, a):
 
 
 def deal(l):
-    """(best share of comparison price, what it's compared with) or None. Price includes shipping."""
-    out = []
-    if l.get("x") is not None:
-        out.append((l["x"], "typical ask"))
-    if l.get("xa") is not None:
-        out.append((l["xa"], "≈ typical ask"))
+    """(share of comparison price, what it's compared with) or None. Price includes shipping.
+    Recorded sales win when there are enough (2+ sales of this exact card, or an estimate from
+    the same card's base sales); otherwise the cheaper asks for the same card (25th percentile
+    of 3+ other Buy It Now listings). Approximate (no card number) comparisons never alert."""
     mv = l.get("mv")
-    if mv and mv[0]:
-        out.append((round((l["p"] + (l.get("s") or 0)) / mv[0], 2), f"sold value ({mv[3]})"))
-    return min(out) if out else None
+    sold = (round((l["p"] + (l.get("s") or 0)) / mv[0], 2), f"sold value ({mv[3]})") if mv and mv[0] else None
+    if sold and ((mv[2] == "A" and mv[1] >= 2) or mv[2] == "C"):
+        return sold
+    ask = (l["xl"], "lower asks") if l.get("xl") is not None and l.get("x") is not None else None
+    if ask and sold:  # a single sale is weak, but if it disagrees with the asks, trust neither
+        return max(ask, sold)
+    return ask
 
 
 def _split(v):

@@ -196,7 +196,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
       <label for="f-target">Target +</label><input id="f-target" type="number" inputmode="numeric" min="0" step="5" placeholder="0"><span>%</span>
     </div>
     <button class="chip" id="f-offers" aria-pressed="false">Accepts offers</button>
-    <button class="chip" id="f-deals" aria-pressed="false" title="Priced at 65% or less of the typical ask or of the sold value">Deals ≤65%</button>
+    <button class="chip" id="f-deals" aria-pressed="false" title="Priced at 65% or less of the sold value, or of the cheaper asks for the same card">Deals ≤65%</button>
     <button class="chip" id="f-psa" aria-pressed="false">55/45 or better</button>
     <button class="chip" id="f-read" aria-pressed="false">Measured only</button>
     <!-- Shortlist filter and sync are hidden for now; remove "hidden" to bring them back -->
@@ -207,7 +207,7 @@ dialog p { color: #e8ebf0; text-align: center; font-size: .85rem; margin: 8px 0 
     <button class="chip" id="open-check">Check a listing</button>
   </div>
 
-  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. Serial numbers are read from the card photo, not the title, so check the stamp in the listing before buying. Break-even is the sale price that covers your cost plus all-in grading after eBay's fee; set a target % to see the sale you'd need for that profit. Card gem rate is for that exact card and parallel, from GemRate. Sold value comes from sales the scanner has seen (auction final bids, Buy It Now sales without offers): this exact card, else the same set and parallel, else an estimate from the player's base cards; “Deal” means the price with shipping is 65% or less of the sold value or of the typical ask. Tap a corner to enlarge it.</div>
+  <div class="legend">Centering is measured on the front photo; PSA 10 allows 55/45. Cards with a clear photo that misses that are already removed. Serial numbers are read from the card photo, not the title, so check the stamp in the listing before buying. Break-even is the sale price that covers your cost plus all-in grading after eBay's fee; set a target % to see the sale you'd need for that profit. Card gem rate is for that exact card and parallel, from GemRate. Sold value comes from sales the scanner has seen (auction final bids, Buy It Now sales without offers): this exact card, else the same set and parallel, else an estimate from the player's base cards; “Deal” means the price with shipping is 65% or less of the sold value (2+ sales of this exact card, or an estimate from its base version), or, without enough sales, of the cheaper asks for the same card (25th percentile of 3+ other listings). Tap a corner to enlarge it.</div>
   <div class="list" id="list"></div>
   <button class="btn more" id="more" hidden>Show more</button>
 </div>
@@ -330,11 +330,15 @@ function serialPill(l) {
 }
 // Deal = price (with shipping) as a share of the typical ask or of the sold value, whichever is lower
 const DEAL = 0.65;
+// Same rule as the email alerts (alerts.py deal): enough recorded sales win; otherwise the cheaper
+// asks for the same card (25th percentile of 3+ others); one sale and the asks must both agree.
 function deal(l) {
-  const out = [];
-  if (l.x != null) out.push([l.x, l.approx ? "≈ typical ask" : "typical ask"]);
-  if (l.mv && l.mv[0]) out.push([Math.round((l.price + (l.shipping || 0)) / l.mv[0] * 100) / 100, "sold value"]);
-  return out.length ? out.sort((a, b) => a[0] - b[0])[0] : null;
+  const mv = l.mv;
+  const sold = mv && mv[0] ? [Math.round((l.price + (l.shipping || 0)) / mv[0] * 100) / 100, "sold value"] : null;
+  if (sold && ((mv[2] === "A" && mv[1] >= 2) || mv[2] === "C")) return sold;
+  const ask = l.xl != null && !l.approx ? [l.xl, "lower asks"] : null;
+  if (ask && sold) return ask[0] >= sold[0] ? ask : sold;
+  return ask;
 }
 function valueLine(l) {
   if (!l.mv) return "";
@@ -376,7 +380,7 @@ function expand(r, player) {
   return {
     id: r.id, title: r.t, url: itemUrl(r.id, r.u), images: r.i ? [r.i] : [], nImg: r.n, price: r.p, bin: r.b, shipping: r.s,
     auction: !!r.a, ends: r.e, first: r.f, seller: r.sl, feedback: r.fb, player, year: r.y, set: r.st, gem: r.g,
-    card: r.k, parallel: r.pr, x: r.x ?? r.xa, approx: r.x == null && r.xa != null, mv: r.mv || null, listed: r.l || r.f, offers: !!r.o,
+    card: r.k, parallel: r.pr, x: r.x ?? r.xa, approx: r.x == null && r.xa != null, mv: r.mv || null, xl: r.xl ?? null, listed: r.l || r.f, offers: !!r.o,
     sn: r.c?.sn ? { num: r.c.sn[0], den: r.c.sn[1], conf: r.c.sn[2] } : null,
     cg: r.cg ? { rate: r.cg[0], graded: r.cg[1], psa10: r.cg[2], psa9: r.cg[3], parallel: r.cg[4] } : null,
     c: r.c ? { lr: r.c.lr, tb: r.c.tb, worst: r.c.w, confidence: r.c.cf ?? 0, quad: r.c.q, note: r.c.note } : null,
