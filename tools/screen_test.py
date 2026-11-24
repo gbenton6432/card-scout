@@ -30,12 +30,19 @@ def grade_of(title):
     return int(m.group(1)) if m else None
 
 
-def search(e, q, cond, lo, hi, pages):
+def low3(v):
+    """Average of the 3 cheapest Buy It Now asks (fewer if fewer are listed)."""
+    v = sorted(v)[:3]
+    return sum(v) / len(v) if v else None
+
+
+def search(e, q, cond, lo, hi, pages, bin_only=True):
     out = []
     for p in range(pages):
         j = e._get("/buy/browse/v1/item_summary/search", {
             "q": q, "category_ids": "261328", "limit": PAGE, "offset": p * PAGE,
-            "filter": f"conditionIds:{{{cond}}},price:[{lo}..{hi}],priceCurrency:USD,deliveryCountry:US"}) or {}
+            "filter": f"conditionIds:{{{cond}}},price:[{lo}..{hi}],priceCurrency:USD,deliveryCountry:US"
+                      + (",buyingOptions:{FIXED_PRICE}" if bin_only else "")}) or {}
         items = j.get("itemSummaries", [])
         out += items
         if len(items) < PAGE:
@@ -59,6 +66,7 @@ def main():
     ap.add_argument("player"); ap.add_argument("sport")
     ap.add_argument("--psa8", action="store_true"); ap.add_argument("--lo", type=float, default=200)
     ap.add_argument("--hi", type=float, default=1000); ap.add_argument("--pages", type=int, default=10)
+    ap.add_argument("--raw-cards", type=int, default=120)
     a = ap.parse_args()
     cfg = yaml.safe_load(open(os.path.join(HERE, "config.yaml")))
     # Screening: no gem-rate cutoff, any major brand, every year
@@ -66,7 +74,7 @@ def main():
                        "no_cutoff": [{"years": "1980-", "brands": BRANDS}]}]
     m = scout.Matcher(cfg)
     p = scout.players_from(cfg)[0]
-    e = Ebay(os.environ["EBAY_CLIENT_ID"], os.environ["EBAY_CLIENT_SECRET"], _NoStore(), budget=80)
+    e = Ebay(os.environ["EBAY_CLIENT_ID"], os.environ["EBAY_CLIENT_SECRET"], _NoStore(), budget=200)
 
     def key(t):
         r = m.match(t, p)
@@ -83,7 +91,8 @@ def main():
     titles = {}
     # PSA-graded listings: 10s in the target range decide which cards count; 9s/8s priced lower
     for g in grades:
-        lo, hi = (a.lo, a.hi) if g == 10 else (10, a.hi)
+        # 10s: search below the range too, so a card's cheapest PSA 10 asks aren't cut off
+        lo, hi = (a.lo / 3, a.hi * 1.5) if g == 10 else (10, a.hi)
         for it in search(e, f"{a.player} PSA {g}", GRADED, lo, hi, a.pages if g == 10 else max(3, a.pages // 2)):
             t = it.get("title", "")
             if grade_of(t) != g:
@@ -92,29 +101,35 @@ def main():
             if k:
                 asks[k][f"psa{g}"].append(total(it))
                 titles.setdefault(k, t)
-    raw = search(e, a.player, UNGRADED, 3, a.hi, a.pages)
-    for it in raw:
-        t = it.get("title", "")
-        if re.search(r"\b(psa|bgs|sgc|cgc|beckett|graded|lot|reprint)\b", t, re.I):
-            continue
-        k = key(t)
-        if k and k in asks:
-            asks[k]["raw"].append(total(it))
+    # Raw: search each candidate card directly (most-listed PSA 10s first), Buy It Now only
+    cands = sorted(asks, key=lambda k: -len(asks[k].get("psa10", [])))[:a.raw_cards]
+    for k in cands:
+        par = "" if k[3] == "base" else k[3].replace("+", " ").replace("/", "")
+        for it in search(e, f"{k[0]} {k[1]} {a.player} {k[2]} {par}".strip(), UNGRADED, 1, a.hi, 1):
+            t = it.get("title", "")
+            if re.search(r"\b(psa|bgs|sgc|cgc|beckett|graded|lot|reprint)\b", t, re.I):
+                continue
+            if key(t) == k:
+                asks[k]["raw"].append(total(it))
     rows = []
     for k, v in asks.items():
         if not v.get("psa10"):
             continue
-        p10 = statistics.median(v["psa10"])
-        rw = statistics.median(v["raw"]) if v.get("raw") else None
+        p10 = low3(v["psa10"])
+        if len(v["psa10"]) < 2:   # one PSA 10 listing isn't a price
+            continue
+        rw = low3(v["raw"]) if v.get("raw") else None
         rate = m.card_rate(a.player, k) if hasattr(m, "card_rate") else None
         rows.append({"card": f"{k[0]} {k[1]} #{k[2]} {'' if k[3] == 'base' else k[3]}".strip(),
                      "psa10_ask": round(p10), "n10": len(v["psa10"]),
-                     "psa9_ask": round(statistics.median(v["psa9"])) if v.get("psa9") else None,
-                     "psa8_ask": round(statistics.median(v["psa8"])) if v.get("psa8") else None,
+                     "psa9_ask": round(low3(v["psa9"])) if v.get("psa9") else None,
+                     "psa8_ask": round(low3(v["psa8"])) if v.get("psa8") else None,
                      "raw_ask": round(rw, 2) if rw else None, "nraw": len(v.get("raw", [])),
                      "mult": round(p10 / (rw + 40), 2) if rw else None, "example": titles[k][:80]})
+    rows = [r for r in rows if a.lo <= r["psa10_ask"] <= a.hi]
     rows.sort(key=lambda r: (r["mult"] is None, -(r["mult"] or 0), -r["n10"]))
-    print(f"\n{a.player}: {len(rows)} cards with PSA 10 asks ${a.lo:.0f}-{a.hi:.0f}; eBay calls used {e.used}")
+    print(f"\n{a.player}: {len(rows)} cards whose 3 cheapest PSA 10 Buy It Now asks average ${a.lo:.0f}-{a.hi:.0f} "
+          f"(2+ listed); prices = average of the 3 cheapest Buy It Now asks incl. shipping; eBay calls {e.used}")
     print(f"{'card':58} {'PSA10':>6} {'n':>3} {'PSA9':>5}" + (f" {'PSA8':>5}" if a.psa8 else "") +
           f" {'raw':>7} {'n':>3} {'x(raw+40)':>9}")
     for r in rows[:80]:
