@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Grade Screener</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;800&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Same look as Card Scout: a filter bar over one column of card rows; numbers in mono, tabular */
+:root {
+  --bg: #eef0f2; --panel: #ffffff; --ink: #141a24; --muted: #5d6675; --line: #d5dae1;
+  --accent: #b5172f; --good: #1f7a4d; --good-bg: #e2f2e9; --warn: #9a6200; --warn-bg: #fbf0d9;
+  --bad: #a4232f; --bad-bg: #f8e1e3;
+  --f-display: "Saira Condensed", "Arial Narrow", sans-serif;
+  --f-body: "Public Sans", system-ui, -apple-system, sans-serif;
+  --f-data: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10141b; --panel: #181e28; --ink: #e8ebf0; --muted: #98a2b2; --line: #2a3240;
+  --accent: #ff5a6e; --good: #5fd39a; --good-bg: #173326; --warn: #f0b85a; --warn-bg: #3a2c12;
+  --bad: #ff7a85; --bad-bg: #3d1a1f; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10141b; --panel: #181e28; --ink: #e8ebf0; --muted: #98a2b2; --line: #2a3240;
+  --accent: #ff5a6e; --good: #5fd39a; --good-bg: #173326; --warn: #f0b85a; --warn-bg: #3a2c12;
+  --bad: #ff7a85; --bad-bg: #3d1a1f; color-scheme: dark }
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 20px 60px; display: grid; gap: 14px }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px }
+h1 { font: 800 2.1rem/1 var(--f-display); letter-spacing: .02em; text-transform: uppercase; margin: 0 }
+h1 span { color: var(--accent) }
+a { color: inherit }
+.meta, .note { color: var(--muted); font-size: .85rem }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px }
+.bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 12px; cursor: pointer; max-width: 100% }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+.count { color: var(--muted); font-size: .85rem; margin-left: auto }
+.list { display: grid; gap: 10px }
+.row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px }
+.title { font-weight: 600; flex: 1 1 260px }
+.player { color: var(--muted); font-size: .8rem }
+.pill { font: 600 .72rem var(--f-body); letter-spacing: .04em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+  background: var(--bg); color: var(--muted); white-space: nowrap }
+.pill.good { background: var(--good-bg); color: var(--good) }
+.pill.warn { background: var(--warn-bg); color: var(--warn) }
+.pill.bad { background: var(--bad-bg); color: var(--bad) }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 8px 14px }
+.cell small { display: block; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em }
+.cell b { font: 500 1rem var(--f-data); font-variant-numeric: tabular-nums }
+.cell i { font-style: normal; color: var(--muted); font-size: .75rem; margin-left: 3px }
+.cell.hl b { color: var(--good) }
+.links { display: flex; flex-wrap: wrap; gap: 8px }
+.btn { font: 600 .8rem var(--f-body); text-decoration: none; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line) }
+.btn.main { background: var(--accent); color: #fff; border-color: var(--accent) }
+.empty { color: var(--muted); padding: 30px 0; text-align: center }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+</style>
+<div class="wrap">
+  <header>
+    <h1>Grade <span>Screener</span></h1>
+    <span class="meta"><a href="./">← Card Scout</a> · <span id="updated"></span></span>
+  </header>
+  <div class="note" id="how"></div>
+  <div class="bar" role="toolbar" aria-label="Filters">
+    <select id="f-player" aria-label="Player"><option value="">All players</option></select>
+    <select id="f-sort" aria-label="Sort">
+      <option value="mult">Sort: Best multiple</option>
+      <option value="profit">Sort: Profit at PSA 10</option>
+      <option value="ev">Sort: Expected profit (gem rate)</option>
+      <option value="p10">Sort: PSA 10 price</option>
+      <option value="liq">Sort: Most PSA 10s listed</option>
+    </select>
+    <button class="chip" id="f-pass" aria-pressed="true">Meets target only</button>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="list" id="list"></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const money = v => v == null ? "–" : "$" + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const st = { player: "", sort: "mult", pass: true };
+try { Object.assign(st, JSON.parse(localStorage.getItem("gs-filters") || "{}")) } catch (e) {}
+let data = null;
+
+function cell(label, value, extra = "", hl = false, tip = "") {
+  return `<div class="cell${hl ? " hl" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><small>${label}</small><b>${value}</b>${extra ? `<i>${extra}</i>` : ""}</div>`;
+}
+function row(r, p, s) {
+  const t = s.target_multiple;
+  const multPill = `<span class="pill ${r.pass ? "good" : r.mult >= t * 0.75 ? "warn" : ""}" title="PSA 10 price ÷ (raw + $${s.grading_cost} grading)">${r.mult.toFixed(1)}× ${r.pass ? "· meets " + t + "×" : ""}</span>`;
+  const p8 = p.psa8 ? `<span class="pill ${r.p8_covers ? "good" : r.p8_covers === false ? "bad" : ""}" title="Does a PSA 8 sell for at least raw + grading?">${r.p8_covers ? "PSA 8 covers cost" : r.p8_covers === false ? "PSA 8 below cost" : "No PSA 8 price"}</span>` : "";
+  return `<article class="row">
+    <div class="top"><span class="title">${esc(r.card)}</span>${multPill}${p8}</div>
+    <div class="player">${esc(r.player)}</div>
+    <div class="grid">
+      ${cell("PSA 10", money(r.p10), `${r.n10} listed`)}
+      ${cell("PSA 9", money(r.p9), r.n9 ? `${r.n9} listed` : "")}
+      ${p.psa8 ? cell("PSA 8", money(r.p8), r.n8 ? `${r.n8} listed` : "") : ""}
+      ${cell("Raw", money(r.raw), `${r.nraw} listed`)}
+      ${cell("Cost in", money(r.cost), "raw + grading", false, "What you'd have in the card: raw price + grading")}
+      ${cell("Profit at 10", money(r.profit10), "after eBay fee", r.profit10 > 0, "PSA 10 price after eBay's fee, minus raw + grading")}
+      ${cell("Gem rate", r.gem == null ? "–" : r.gem + "%", r.graded ? `${r.graded.toLocaleString()} graded` : "")}
+      ${r.ev_profit != null ? cell("Expected profit", money(r.ev_profit), "with gem rate", r.ev_profit > 0, "Gem rate × PSA 10 + the rest × PSA 9, after eBay's fee, minus raw + grading") : ""}
+    </div>
+    <div class="links">
+      <a class="btn main" href="${esc(r.links.raw)}" target="_blank" rel="noopener">Find raw copies</a>
+      <a class="btn" href="${esc(r.links.sold10)}" target="_blank" rel="noopener">PSA 10 sold</a>
+      <a class="btn" href="${esc(r.links.soldraw)}" target="_blank" rel="noopener">Raw sold</a>
+    </div>
+  </article>`;
+}
+function render() {
+  try { localStorage.setItem("gs-filters", JSON.stringify(st)) } catch (e) {}
+  $("#f-player").value = st.player; $("#f-sort").value = st.sort; $("#f-pass").setAttribute("aria-pressed", st.pass);
+  if (!data) return;
+  const s = data.settings, players = Object.values(data.players);
+  let rows = [];
+  for (const p of players) if (!st.player || p.name === st.player) for (const r of p.cards) rows.push([r, p]);
+  if (st.pass) rows = rows.filter(([r]) => r.pass);
+  const by = { mult: r => -r.mult, profit: r => -r.profit10, ev: r => r.ev_profit == null ? 1e9 : -r.ev_profit, p10: r => -r.p10, liq: r => -r.n10 };
+  rows.sort((a, b) => by[st.sort](a[0]) - by[st.sort](b[0]));
+  $("#count").textContent = `${rows.length} card${rows.length === 1 ? "" : "s"}`;
+  $("#list").innerHTML = rows.length ? rows.map(([r, p]) => row(r, p, s)).join("")
+    : `<div class="empty">No cards match. Try turning off “Meets target only”.</div>`;
+}
+fetch("screener/data.json", { cache: "no-store" }).then(r => r.json()).then(d => {
+  data = d; const s = d.settings;
+  $("#updated").textContent = "Updated " + new Date(d.updated).toLocaleString();
+  $("#how").innerHTML = `Cards whose PSA 10s go for <b>${money(s.psa10_min)}–${money(s.psa10_max)}</b>, top ${s.max_cards || 50} per player.
+    <b>Meets target</b> = PSA 10 ≥ ${s.target_multiple}× (raw + $${s.grading_cost} grading). Prices: ${esc(s.price_source)},
+    until sold prices are connected. Gem rate and expected profit show where GemRate has the exact card.`;
+  for (const p of Object.values(d.players).sort((a, b) => a.name.localeCompare(b.name)))
+    $("#f-player").insertAdjacentHTML("beforeend", `<option>${esc(p.name)}</option>`);
+  render();
+}).catch(() => { $("#list").innerHTML = `<div class="empty">No screener results yet.</div>` });
+$("#f-player").onchange = e => { st.player = e.target.value; render() };
+$("#f-sort").onchange = e => { st.sort = e.target.value; render() };
+$("#f-pass").onclick = () => { st.pass = !st.pass; render() };
+</script>

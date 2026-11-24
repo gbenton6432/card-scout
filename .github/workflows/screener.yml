@@ -1,0 +1,41 @@
+name: Grade Screener
+
+on:
+  schedule:
+    - cron: "41 9 * * *"      # daily, a few players each run (oldest first)
+  workflow_dispatch:
+    inputs:
+      players: {description: 'optional: players to refresh now, separated by ";"', default: ""}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screener
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements.txt
+      - name: Screen players
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          PLAYERS: ${{ inputs.players }}
+        run: |
+          IFS=';' read -r -a P <<< "$PLAYERS"
+          python screener.py "${P[@]}"
+      - name: Save results (published with the next Card Scout scan)
+        run: |
+          git config user.name "card-scout-bot"
+          git config user.email "card-scout-bot@users.noreply.github.com"
+          git add site/screener/data.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Grade Screener results"
+          for i in 1 2 3; do git pull --rebase -q && git push -q && break; sleep 5; done

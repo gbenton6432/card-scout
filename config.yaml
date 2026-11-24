@@ -133,7 +133,7 @@ defaults:
   max_price: 1000
   buying_options: [FIXED_PRICE, AUCTION]
   ship_to_country: US
-  daily_call_limit: 5000      # raise this if eBay approves a higher limit
+  daily_call_limit: 4300      # eBay allows 5000 a day; 700 are left for the Grade Screener
 
 # ── Break-even ────────────────────────────────────────────────
 # Each card shows the sale price you'd need, after eBay's fee, to get back
@@ -192,3 +192,20 @@ photos:
   min_confidence_to_drop: 0.6
   measure_minutes: 40         # time per hourly run spent measuring new photos
   read_serials: true          # read serial-number stamps (e.g. 023/199) off sports card photos
+
+# ── Grade Screener ────────────────────────────────────────────
+# A separate daily job: for each player below, the cards whose PSA 10s go for $200-1000 and are
+# worth grading. Price = average of the 3 cheapest Buy It Now asks (until sold data is connected).
+# Open screening: every year, every major brand, no gem-rate cutoff. Results: /screener.html
+screener:
+  psa10_min: 200
+  psa10_max: 1000
+  grading_cost: 40
+  target_multiple: 2          # PSA 10 price must be at least 2x (raw + grading)
+  max_cards_per_player: 50
+  players_per_run: 3          # players refreshed per daily run (oldest first)
+  calls_per_run: 650          # eBay calls per run (~200 per player)
+  players:
+    # psa8: true = older greats: shows PSA 8 and checks it covers raw + grading (break-even)
+    - {name: Shohei Ohtani, sport: baseball}
+    - {name: Kobe Bryant,   sport: basketball, psa8: true}
