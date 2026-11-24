@@ -46,7 +46,10 @@ class Ebay:
                                        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"})
             self.used += 1
             self.store.count_call()
-            if r.status_code == 429:  # eBay says slow down / daily limit hit
+            if r.status_code == 429:  # eBay says slow down (short bursts) or the daily limit is hit
+                if attempt < 2:
+                    time.sleep(20 * (attempt + 1))
+                    continue
                 raise OutOfBudget()
             if r.status_code in (500, 502, 503, 504) and attempt < 2:
                 time.sleep(3 * (attempt + 1))
