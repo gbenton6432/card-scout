@@ -28,6 +28,7 @@ from cards import card_key
 from centering import measure
 from ebay import Ebay, OutOfBudget, PAGE, MAX_RESULTS, big_image
 import values
+from zoneinfo import ZoneInfo
 from store import Store, now_iso
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -728,9 +729,10 @@ def budget_for_day(cfg):
 
 
 def budget_for_run(cfg, store):
-    """Spread what's left of today's calls evenly over the hours left today (UTC)."""
+    """Spread what's left of today's calls evenly over the hours left in eBay's day (it resets at
+    midnight Pacific)."""
     left = budget_for_day(cfg) - store.calls_today()
-    hours_left = 24 - datetime.now(timezone.utc).hour
+    hours_left = 24 - datetime.now(ZoneInfo("America/Los_Angeles")).hour
     return max(0, left // max(1, hours_left))
 
 

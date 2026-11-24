@@ -1,6 +1,7 @@
 """SQLite store: every listing seen, sweep progress, and eBay calls used per day."""
 import json, os, sqlite3
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -35,7 +36,8 @@ class Store:
 
     # ── eBay call budget ──
     def today(self):
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # eBay's daily call allowance resets at midnight Pacific time, not UTC
+        return datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
 
     def calls_today(self):
         r = self.db.execute("SELECT n FROM calls WHERE day=?", (self.today(),)).fetchone()
