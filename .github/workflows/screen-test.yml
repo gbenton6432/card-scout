@@ -1,0 +1,30 @@
+name: Grade screener test
+
+on:
+  workflow_dispatch:
+    inputs:
+      player: {description: "player name", required: true}
+      sport: {description: "baseball / basketball / football / soccer", required: true}
+      extra: {description: "extra flags, e.g. --psa8", default: ""}
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -r requirements.txt
+      - env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          PLAYER: ${{ inputs.player }}
+          SPORT: ${{ inputs.sport }}
+          EXTRA: ${{ inputs.extra }}
+        run: python tools/screen_test.py "$PLAYER" "$SPORT" $EXTRA
+      - uses: actions/upload-artifact@v4
+        with: {name: screen, path: "screen_*.json"}
