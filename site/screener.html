@@ -39,6 +39,13 @@ select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: v
   border-radius: 999px; padding: 7px 12px; cursor: pointer; max-width: 100% }
 .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 .count { color: var(--muted); font-size: .85rem; margin-left: auto }
+.range { display: inline-flex; align-items: center; gap: 6px; font: 600 .82rem var(--f-body); color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 12px }
+.range input, .range select { font: 500 .82rem var(--f-data); color: var(--ink); background: transparent; border: 0;
+  width: 64px; padding: 3px 2px; border-radius: 6px }
+.range select { width: auto; padding-right: 2px }
+.range input:focus-visible, .range select:focus-visible { outline: 2px solid var(--accent) }
+.reset { font: 600 .8rem var(--f-body); color: var(--muted); background: none; border: 0; cursor: pointer; text-decoration: underline }
 .list { display: grid; gap: 10px }
 .row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px }
 .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px }
@@ -74,8 +81,14 @@ select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: v
       <option value="ev">Sort: Expected profit (gem rate)</option>
       <option value="p10">Sort: PSA 10 price</option>
       <option value="liq">Sort: Most PSA 10s listed</option>
+      <option value="mult9">Sort: Best PSA 9 multiple</option>
+      <option value="gem">Sort: Highest gem rate</option>
+      <option value="raw">Sort: Raw price, low to high</option>
     </select>
+    <label class="range">Year <select id="f-y1" aria-label="From year"></select>–<select id="f-y2" aria-label="To year"></select></label>
+    <label class="range">Raw $ <input id="f-r1" type="number" inputmode="decimal" min="0" placeholder="min" aria-label="Raw price min">–<input id="f-r2" type="number" inputmode="decimal" min="0" placeholder="max" aria-label="Raw price max"></label>
     <button class="chip" id="f-pass" aria-pressed="true">Meets target only</button>
+    <button class="reset" id="f-reset">Reset</button>
     <span class="count" id="count"></span>
   </div>
   <div class="list" id="list"></div>
@@ -84,13 +97,15 @@ select, .chip { font: 600 .82rem var(--f-body); color: var(--ink); background: v
 const $ = s => document.querySelector(s);
 const money = v => v == null ? "–" : "$" + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const st = { player: "", sort: "mult", pass: true };
+const DEFAULTS = { player: "", sort: "mult", pass: true, y1: "", y2: "", r1: "", r2: "" };
+const st = { ...DEFAULTS };
 try { Object.assign(st, JSON.parse(localStorage.getItem("gs-filters") || "{}")) } catch (e) {}
 let data = null;
 
 function cell(label, value, extra = "", hl = false, tip = "") {
   return `<div class="cell${hl ? " hl" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><small>${label}</small><b>${value}</b>${extra ? `<i>${extra}</i>` : ""}</div>`;
 }
+const m9 = r => r.mult9 ?? (r.p9 != null && r.cost ? Math.round(r.p9 / r.cost * 100) / 100 : null);
 function row(r, p, s) {
   const t = s.target_multiple;
   const multPill = `<span class="pill ${r.pass ? "good" : r.mult >= t * 0.75 ? "warn" : ""}" title="PSA 10 price ÷ (raw + $${s.grading_cost} grading)">${r.mult.toFixed(1)}× ${r.pass ? "· meets " + t + "×" : ""}</span>`;
@@ -101,11 +116,14 @@ function row(r, p, s) {
     <div class="grid">
       ${cell("PSA 10", money(r.p10), `${r.n10} listed`)}
       ${cell("PSA 9", money(r.p9), r.n9 ? `${r.n9} listed` : "")}
+      ${cell("PSA 9 multiple", m9(r) == null ? "–" : m9(r).toFixed(1) + "×", "", m9(r) != null && m9(r) >= 1, "PSA 9 price ÷ (raw + grading): 1× or more means a 9 still covers your cost")}
       ${p.psa8 ? cell("PSA 8", money(r.p8), r.n8 ? `${r.n8} listed` : "") : ""}
       ${cell("Raw", money(r.raw), `${r.nraw} listed`)}
       ${cell("Cost in", money(r.cost), "raw + grading", false, "What you'd have in the card: raw price + grading")}
       ${cell("Profit at 10", money(r.profit10), "after eBay fee", r.profit10 > 0, "PSA 10 price after eBay's fee, minus raw + grading")}
-      ${cell("Gem rate", r.gem == null ? "–" : r.gem + "%", r.graded ? `${r.graded.toLocaleString()} graded` : "")}
+      ${cell("Gem rate", r.gem == null ? "–" : r.gem + "%",
+        r.gem == null ? "not on GemRate" : r.gem_src === "set" ? "whole set" : (r.graded ? `this card · ${r.graded.toLocaleString()} graded` : "this card"),
+        false, r.gem_src === "set" ? "GemRate's PSA 10 rate for the whole set; this exact card isn't in the data yet" : "Share of this exact card graded by PSA that got a 10 (GemRate)")}
       ${r.ev_profit != null ? cell("Expected profit", money(r.ev_profit), "with gem rate", r.ev_profit > 0, "Gem rate × PSA 10 + the rest × PSA 9, after eBay's fee, minus raw + grading") : ""}
     </div>
     <div class="links">
@@ -118,12 +136,18 @@ function row(r, p, s) {
 function render() {
   try { localStorage.setItem("gs-filters", JSON.stringify(st)) } catch (e) {}
   $("#f-player").value = st.player; $("#f-sort").value = st.sort; $("#f-pass").setAttribute("aria-pressed", st.pass);
+  $("#f-y1").value = st.y1; $("#f-y2").value = st.y2;
+  if (document.activeElement !== $("#f-r1")) $("#f-r1").value = st.r1;
+  if (document.activeElement !== $("#f-r2")) $("#f-r2").value = st.r2;
   if (!data) return;
   const s = data.settings, players = Object.values(data.players);
   let rows = [];
   for (const p of players) if (!st.player || p.name === st.player) for (const r of p.cards) rows.push([r, p]);
   if (st.pass) rows = rows.filter(([r]) => r.pass);
-  const by = { mult: r => -r.mult, profit: r => -r.profit10, ev: r => r.ev_profit == null ? 1e9 : -r.ev_profit, p10: r => -r.p10, liq: r => -r.n10 };
+  const y1 = +st.y1 || 0, y2 = +st.y2 || 9999, r1 = parseFloat(st.r1), r2 = parseFloat(st.r2);
+  rows = rows.filter(([r]) => +r.year >= y1 && +r.year <= y2 && (isNaN(r1) || r.raw >= r1) && (isNaN(r2) || r.raw <= r2));
+  const by = { mult: r => -r.mult, profit: r => -r.profit10, ev: r => r.ev_profit == null ? 1e9 : -r.ev_profit, p10: r => -r.p10,
+    liq: r => -r.n10, mult9: r => m9(r) == null ? 1e9 : -m9(r), gem: r => r.gem == null ? 1e9 : -r.gem, raw: r => r.raw };
   rows.sort((a, b) => by[st.sort](a[0]) - by[st.sort](b[0]));
   $("#count").textContent = `${rows.length} card${rows.length === 1 ? "" : "s"}`;
   $("#list").innerHTML = rows.length ? rows.map(([r, p]) => row(r, p, s)).join("")
@@ -134,12 +158,19 @@ fetch("screener/data.json", { cache: "no-store" }).then(r => r.json()).then(d =>
   $("#updated").textContent = "Updated " + new Date(d.updated).toLocaleString();
   $("#how").innerHTML = `Cards whose PSA 10s go for <b>${money(s.psa10_min)}–${money(s.psa10_max)}</b>, top ${s.max_cards || 50} per player.
     <b>Meets target</b> = PSA 10 ≥ ${s.target_multiple}× (raw + $${s.grading_cost} grading). Prices: ${esc(s.price_source)},
-    until sold prices are connected. Gem rate and expected profit show where GemRate has the exact card.`;
+    until sold prices are connected. Gem rate is for the exact card when GemRate has it, otherwise the whole set (marked); expected profit uses it. PSA 9 multiple of 1× or more means a 9 still covers raw + grading.`;
   for (const p of Object.values(d.players).sort((a, b) => a.name.localeCompare(b.name)))
     $("#f-player").insertAdjacentHTML("beforeend", `<option>${esc(p.name)}</option>`);
+  const years = [...new Set(Object.values(d.players).flatMap(p => p.cards.map(c => +c.year)))].sort((a, b) => a - b);
+  $("#f-y1").innerHTML = `<option value="">any</option>` + years.map(y => `<option>${y}</option>`).join("");
+  $("#f-y2").innerHTML = `<option value="">any</option>` + years.map(y => `<option>${y}</option>`).join("");
   render();
 }).catch(() => { $("#list").innerHTML = `<div class="empty">No screener results yet.</div>` });
 $("#f-player").onchange = e => { st.player = e.target.value; render() };
 $("#f-sort").onchange = e => { st.sort = e.target.value; render() };
 $("#f-pass").onclick = () => { st.pass = !st.pass; render() };
+$("#f-y1").onchange = e => { st.y1 = e.target.value; render() };
+$("#f-y2").onchange = e => { st.y2 = e.target.value; render() };
+let t; for (const k of ["r1", "r2"]) $("#f-" + k).oninput = e => { st[k] = e.target.value.trim(); clearTimeout(t); t = setTimeout(render, 300) };
+$("#f-reset").onclick = () => { Object.assign(st, DEFAULTS); render() };
 </script>

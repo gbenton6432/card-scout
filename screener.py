@@ -105,6 +105,7 @@ class Screener:
         m = scout.Matcher(cfg)
         p = scout.players_from(cfg)[0]
         labels = defaultdict(Counter)
+        set_rate = {}  # GemRate's set-level PSA 10 rate, when the set is one GemRate lists
 
         def key(t):
             r = m.match(t, p)
@@ -116,6 +117,8 @@ class Screener:
                 return None
             k = (str(y), set_key(st["set"]), num.upper(), par or "base")
             labels[k][clean_label(st["set"])] += 1
+            if st.get("gem_rate") is not None:
+                set_rate[k] = float(st["gem_rate"])
             return k
 
         asks, example = defaultdict(lambda: defaultdict(list)), {}
@@ -156,6 +159,9 @@ class Screener:
             cr = scout.card_rate(self.rates, {"player": name, "year": k[0], "set_name": label, "card": k[2],
                                               "parallel": k[3]})
             gem = cr["rate"] if cr and cr.get("rate") is not None else None
+            gem_src = "card" if gem is not None else None
+            if gem is None and k in set_rate:  # fall back to the whole set's rate
+                gem, gem_src = round(set_rate[k], 1), "set"
             cost = raw + self.cost
             # Expected resale after eBay's fee: PSA 10 at the gem rate, otherwise the next grade down
             ev = None
@@ -169,9 +175,10 @@ class Screener:
                 "p10": p10, "n10": len(v["psa10"]), "p9": p9, "n9": len(v["psa9"]), "p8": p8, "n8": len(v["psa8"]),
                 "raw": raw, "nraw": len(v["raw"]), "cost": round(cost, 2),
                 "mult": round(p10 / cost, 2), "pass": p10 >= self.target * cost,
+                "mult9": round(p9 / cost, 2) if p9 is not None else None,
                 "p8_covers": (p8 >= cost) if (sp.get("psa8") and p8 is not None) else None,
                 "profit10": round(p10 * (1 - self.fee) - cost, 2),
-                "gem": gem, "graded": cr["graded"] if cr else None, "ev": ev,
+                "gem": gem, "gem_src": gem_src, "graded": cr["graded"] if cr else None, "ev": ev,
                 "ev_profit": round(ev - cost, 2) if ev is not None else None,
                 "example": example.get(k, ""),
             }
