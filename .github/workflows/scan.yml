@@ -63,6 +63,19 @@ jobs:
         if: steps.scan.outputs.ran == 'true'
         with:
           path: site
+      # GitHub's Pages service sometimes can't find the just-uploaded files for a moment
+      # ("Fetching artifact metadata failed"): try again after a pause before calling it a failure
       - id: deploy
         if: steps.scan.outputs.ran == 'true'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - if: steps.scan.outputs.ran == 'true' && steps.deploy.outcome == 'failure'
+        run: sleep 45
+      - id: deploy2
+        if: steps.scan.outputs.ran == 'true' && steps.deploy.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - if: steps.scan.outputs.ran == 'true' && steps.deploy2.outcome == 'failure'
+        run: sleep 90
+      - if: steps.scan.outputs.ran == 'true' && steps.deploy2.outcome == 'failure'
         uses: actions/deploy-pages@v4
